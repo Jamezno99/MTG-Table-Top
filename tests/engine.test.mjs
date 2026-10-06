@@ -208,4 +208,23 @@ test('forfeit gives the win, rematch keeps score and loser goes first', () => {
   assert.equal(g.players[1].life, 40);
 });
 
+test('mana tracker: available mana from untapped sources, clear pool', () => {
+  const g = newGame([{ key: 'Forest', qty: 30 }], [{ key: 'Forest', qty: 30 }]);
+  const pid = g.s.active;
+  put(g, pid, 'Forest'); put(g, pid, 'Forest'); put(g, pid, 'Sol Ring');
+  const elf = put(g, pid, 'Llanowar Elves'); elf.sick = true;   // sick dork can't tap
+  let av = g.availableMana(pid);
+  assert.equal(av.total, 4);           // 2 Forests + Sol Ring (2)
+  assert.equal(av.per.G, 2);
+  assert.equal(av.per.C, 2);
+  elf.sick = false;
+  assert.equal(g.availableMana(pid).total, 5);
+  g.tapForMana(g.players[pid].zones.battlefield[0].iid, { G: 1 });
+  assert.equal(g.players[pid].pool.G, 1);
+  assert.equal(g.availableMana(pid).total, 4);
+  g.addMana(pid, 'R', 2);
+  g.clearPool(pid);
+  assert.deepEqual(g.players[pid].pool, { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 });
+});
+
 console.log(`\n${passed} tests passed`);

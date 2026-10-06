@@ -688,7 +688,33 @@ export class Game {
     });
   }
   addMana(pid, color, n = 1) {
-    this.act(() => { const pl = this.players[pid]; pl.pool[color] = Math.max(0, (pl.pool[color] || 0) + n); });
+    this.act(() => {
+      const pl = this.players[pid];
+      const before = pl.pool[color] || 0;
+      pl.pool[color] = Math.max(0, before + n);
+      const d = pl.pool[color] - before;
+      if (d) this.log(`${pl.name} ${d > 0 ? 'adds' : 'removes'} ${`{${color}}`.repeat(Math.abs(d))} ${d > 0 ? 'to' : 'from'} their mana pool.`);
+    });
+  }
+  clearPool(pid) {
+    this.act(() => { const pl = this.players[pid]; pl.pool = emptyPool(); this.log(`${pl.name} empties their mana pool.`); });
+  }
+
+  /**
+   * What a player could still make by tapping untapped mana sources
+   * (lands, rocks, dorks without summoning sickness). Each source counts once
+   * toward `total`; `per[color]` is how much of that color is reachable.
+   */
+  availableMana(pid) {
+    const pl = this.players[pid];
+    const per = { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 };
+    let total = 0;
+    const srcs = this.manaSources(pl, null);
+    for (const { opts } of srcs) {
+      total += Math.max(...opts.map(o => Object.values(o).reduce((a, b) => a + b, 0)));
+      for (const k of Object.keys(per)) per[k] += Math.max(0, ...opts.map(o => (o.any ? (k === 'C' ? 0 : o.any) : (o[k] || 0))));
+    }
+    return { total, per, sources: srcs.length };
   }
   toggleTap(iid) {
     this.act(() => { const { inst } = this.need(iid); inst.tapped = !inst.tapped; this.log(`${this.face(inst).name} ${inst.tapped ? 'tapped' : 'untapped'}.`); });

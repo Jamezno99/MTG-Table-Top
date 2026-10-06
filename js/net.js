@@ -93,7 +93,7 @@ function redact(game, seat) {
 const OWN_SEAT_ONLY = new Set(['mulligan', 'keep', 'bottomFromHand', 'peekTop', 'concede', 'revealHand', 'chat', 'rematch']);
 
 export const ACTIONS = ['draw', 'mill', 'shuffleLibrary', 'move', 'mulligan', 'keep', 'bottomFromHand', 'nextStep', 'endTurn',
-  'skipCombat', 'playLand', 'cast', 'activate', 'resolveTop', 'counterSpell', 'tapForMana', 'addMana', 'toggleTap', 'untapAll',
+  'skipCombat', 'playLand', 'cast', 'activate', 'resolveTop', 'counterSpell', 'tapForMana', 'addMana', 'clearPool', 'toggleTap', 'untapAll',
   'addCounter', 'setDamage', 'modifyPT', 'grantKeyword', 'transform', 'setNote', 'changeControl', 'createToken', 'copyAsToken',
   'addCardToZone', 'life', 'setLife', 'poison', 'commanderDamage', 'concede', 'setSetting', 'declareAttack', 'declareBlock',
   'undo', 'peekTop', 'revealHand', 'chat', 'rematch'];

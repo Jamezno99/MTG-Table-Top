@@ -579,6 +579,28 @@ function pileHTML(pl, z, label, icon) {
     <span class="plbl">${icon} ${label}</span><span class="pcount">${n}</span></button>`;
 }
 
+const MANA_KEYS = ['W', 'U', 'B', 'R', 'G', 'C'];
+const MANA_NAMES = { W: 'White', U: 'Blue', B: 'Black', R: 'Red', G: 'Green', C: 'Colorless' };
+
+/** Mana tracker: floating pool (by type) + what untapped sources can still make. */
+function manaHTML(pl) {
+  const pool = pl.pool;
+  const total = MANA_KEYS.reduce((n, k) => n + (pool[k] || 0), 0);
+  const av = game.s.stage === 'play' ? game.availableMana(pl.id) : { total: 0, per: {} };
+  const pips = MANA_KEYS.map(k => `<button class="mp ${k} ${pool[k] ? 'has' : ''}" data-act="mana" data-c="${k}"
+      title="${MANA_NAMES[k]}: ${pool[k] || 0} in pool. Tap to add or remove." aria-label="${MANA_NAMES[k]} mana: ${pool[k] || 0}">
+      <span class="ms">${k}</span><span class="mc">${pool[k] || 0}</span></button>`).join('');
+  const can = MANA_KEYS.filter(k => av.per[k]).map(k => `<span class="mini ${k}" title="${MANA_NAMES[k]}">${k}</span>${av.per[k]}`).join(' ');
+  return `<div class="mana ${total ? 'live' : ''}">
+    <div class="mhead"><span class="mlbl">Mana pool</span><span class="mtot" title="Total floating mana">${total}</span>
+      ${total ? '<button class="mclear" data-act="manaclear" title="Empty the pool">Clear</button>' : ''}</div>
+    <div class="pips">${pips}</div>
+    <div class="avail" title="Extra mana these untapped lands and mana sources could still make">${av.total
+      ? `Untapped: <b>${av.total}</b> more <span class="can">${can}</span>`
+      : '<span class="muted">No untapped mana sources</span>'}</div>
+  </div>`;
+}
+
 function matHTML(pl, opp) {
   const s = game.s;
   const isActive = s.stage === 'play' && s.winner == null && s.active === pl.id;
@@ -591,8 +613,6 @@ function matHTML(pl, opp) {
   const me = pl.id === mySeat();
   const cmdr = Object.entries(pl.cmdrDmg).filter(([, d]) => d > 0)
     .map(([iid, d]) => `<span class="chip cmdr ${d >= 15 ? 'danger' : ''}" data-act="cmdrdmg" data-src="${iid}" title="Commander damage from ${esc(s.cmdrNames[iid])} (21 = loss)">⚔ ${esc(s.cmdrNames[iid])} ${d}</span>`).join('');
-  const pool = ['W', 'U', 'B', 'R', 'G', 'C'].filter(k => pl.pool[k] > 0)
-    .map(k => `<span class="m" data-act="unmana" data-c="${k}" title="Tap to remove one"><img class="sym" src="${symUrl(k)}" alt="${k}">${pl.pool[k]}</span>`).join('');
   const wins = (s.score || {})[pl.id] || 0;
   const frontRow = `<div class="row front" data-label="Creatures">${front.map(c => cardHTML(c, { bf: true })).join('')}</div>`;
   const backRow = `<div class="row back" data-label="Lands &amp; permanents">${perms.map(c => cardHTML(c, { bf: true })).join('')}${perms.length && lands.length ? '<span class="gap"></span>' : ''}${lands.map(c => cardHTML(c, { bf: true })).join('')}</div>`;
@@ -611,9 +631,9 @@ function matHTML(pl, opp) {
           ${pl.poison ? `<span class="chip poison ${pl.poison >= 7 ? 'danger' : ''}" data-act="poison" title="Poison counters (10 = loss). Tap to remove one.">☣ ${pl.poison}</span>` : ''}
           ${cmdr}
         </div>
-        ${pool ? `<div class="pool" title="Mana pool (empties between steps)">${pool}</div>` : ''}
         <button class="small actions" data-act="pmenu">⋯ Actions</button>
       </div>
+      ${manaHTML(pl)}
     </div>
     <div class="field">${opp ? backRow + frontRow : frontRow + backRow}</div>
     <div class="piles">
@@ -1146,6 +1166,19 @@ document.addEventListener('click', e => {
     if (a === 'setlife') askNumber('Life total', game.players[pid].life).then(n => n != null && run(() => game.setLife(pid, n)));
     if (a === 'poison') run(() => game.poison(pid, -1));
     if (a === 'unmana') run(() => game.addMana(pid, actEl.dataset.c, -1));
+    if (a === 'manaclear') run(() => game.clearPool(pid));
+    if (a === 'mana') {
+      const c = actEl.dataset.c;
+      const have = game.players[pid].pool[c] || 0;
+      const name = MANA_NAMES[c];
+      openMenu([{ header: `${name} mana · ${have} in pool` },
+        { label: `+1 ${name}`, fn: () => run(() => game.addMana(pid, c, 1)) },
+        { label: `+2 ${name}`, fn: () => run(() => game.addMana(pid, c, 2)) },
+        { label: `+3 ${name}`, fn: () => run(() => game.addMana(pid, c, 3)) },
+        { label: `−1 ${name}`, disabled: !have, fn: () => run(() => game.addMana(pid, c, -1)) },
+        { label: `Remove all ${name}`, disabled: !have, fn: () => run(() => game.addMana(pid, c, -have)) },
+      ], e.clientX, e.clientY);
+    }
     if (a === 'cmdrdmg') cmdrDamageDialog(pid);
     if (a === 'zone') zoneView(pid, actEl.dataset.z);
     if (a === 'pmenu') playerMenu(pid, e);
