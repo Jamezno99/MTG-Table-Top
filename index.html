@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MTG Tabletop</title>
+  <meta name="description" content="A browser Magic: The Gathering tabletop with live card data, deck legality and Commander support.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Inter:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header id="topbar">
+    <div class="brand">MTG <span>Tabletop</span></div>
+    <div id="turninfo"></div>
+    <nav id="phases" aria-label="Turn steps"></nav>
+    <div id="topactions"></div>
+  </header>
+
+  <section id="setup" class="screen">
+    <div class="setup-card">
+      <h1>New game</h1>
+      <p class="sub">Paste decklists in any common format (Arena, MTGO, Moxfield, Archidekt). Card text, images and legality come live from Scryfall, so the banlist is always current.</p>
+      <div class="row">
+        <label>Format
+          <select id="format"></select>
+        </label>
+        <label>Players
+          <select id="playercount">
+            <option value="1">1 (goldfish / solo)</option>
+            <option value="2" selected>2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+          </select>
+        </label>
+        <div class="spacer"></div>
+        <button id="resume" class="btn" hidden>Resume saved game</button>
+      </div>
+      <div id="decks"></div>
+      <div id="report"></div>
+      <div class="row end">
+        <span id="progress" class="muted"></span>
+        <button id="start" class="btn primary">Check decks &amp; start</button>
+      </div>
+    </div>
+  </section>
+
+  <main id="game" class="screen" hidden>
+    <div id="board"></div>
+    <aside id="side">
+      <div id="preview" class="panel"><p class="muted">Hover a card to read it.</p></div>
+      <div id="stackpanel" class="panel"></div>
+      <div id="logpanel" class="panel"><h3>Game log</h3><ol id="log"></ol></div>
+    </aside>
+    <div id="handbar"></div>
+  </main>
+
+  <div id="menu" role="menu" hidden></div>
+  <div id="modal-root"></div>
+  <div id="toasts" aria-live="polite"></div>
+
+  <footer id="legal">Unofficial Fan Content permitted under the Wizards of the Coast Fan Content Policy. Not approved/endorsed by Wizards. Card data &amp; images via <a href="https://scryfall.com" target="_blank" rel="noopener">Scryfall</a>.</footer>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
