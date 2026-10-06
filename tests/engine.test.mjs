@@ -193,4 +193,19 @@ test('activated & loyalty abilities parse', () => {
   assert.equal(ab[1].sign, -1);
 });
 
+test('forfeit gives the win, rematch keeps score and loser goes first', () => {
+  const g = newGame([{ key: 'Forest', qty: 30 }], [{ key: 'Forest', qty: 30 }]);
+  g.concede(1);
+  assert.equal(g.s.winner, 0);
+  assert.equal(g.s.score[0], 1);
+  g.rematch(0);
+  assert.equal(g.s.match, 2);
+  assert.equal(g.s.winner, null);
+  assert.equal(g.s.stage, 'mulligan');
+  assert.equal(g.s.firstPlayer, 1);
+  assert.equal(g.s.score[0], 1);
+  assert.equal(g.players[1].zones.hand.length, 7);
+  assert.equal(g.players[1].life, 40);
+});
+
 console.log(`\n${passed} tests passed`);

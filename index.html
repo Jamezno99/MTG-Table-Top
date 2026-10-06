@@ -2,9 +2,12 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#07090d">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
   <title>MTG Tabletop</title>
-  <meta name="description" content="A browser Magic: The Gathering tabletop with live card data, deck legality and Commander support.">
+  <meta name="description" content="Play Magic: The Gathering in the browser with friends — live card data, deck legality and Commander support.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Inter:wght@400;500;600&display=swap">
   <link rel="stylesheet" href="css/style.css">
@@ -21,11 +24,19 @@
     <div class="setup-card">
       <h1>New game</h1>
       <p class="sub">Paste decklists in any common format (Arena, MTGO, Moxfield, Archidekt). Card text, images and legality come live from Scryfall, so the banlist is always current.</p>
+      <div class="modes" role="tablist">
+        <button data-mode="local" class="on" role="tab">Same screen</button>
+        <button data-mode="host" role="tab">Host online</button>
+        <button data-mode="join" role="tab">Join online</button>
+      </div>
       <div class="row">
-        <label>Format
+        <label data-show="local host">Format
           <select id="format"></select>
         </label>
-        <label>Players
+        <label data-show="join">Room code
+          <input id="roomcode" maxlength="6" placeholder="ABC123" autocapitalize="characters" autocomplete="off" spellcheck="false">
+        </label>
+        <label data-show="local">Players
           <select id="playercount">
             <option value="1">1 (goldfish / solo)</option>
             <option value="2" selected>2</option>
@@ -37,6 +48,7 @@
         <button id="resume" class="btn" hidden>Resume saved game</button>
       </div>
       <div id="decks"></div>
+      <div id="lobby" hidden></div>
       <div id="report"></div>
       <div class="row end">
         <span id="progress" class="muted"></span>
@@ -50,7 +62,11 @@
     <aside id="side">
       <div id="preview" class="panel"><p class="muted">Hover a card to read it.</p></div>
       <div id="stackpanel" class="panel"></div>
-      <div id="logpanel" class="panel"><h3>Game log</h3><ol id="log"></ol></div>
+      <div id="logpanel" class="panel">
+        <h3>Game log</h3>
+        <ol id="log"></ol>
+        <form id="chatform" hidden><input id="chatinput" placeholder="Message the table…" maxlength="300" autocomplete="off"><button class="btn small">Send</button></form>
+      </div>
     </aside>
     <div id="handbar"></div>
   </main>

@@ -20,7 +20,14 @@ A browser-based Magic: The Gathering simulator with live card data, deck legalit
   - Abilities: activated and loyalty abilities.
   - Combat: attackers and blockers with flying/reach and menace warnings, first strike, double strike, trample, deathtouch, lifelink, infect, toxic and vigilance.
   - State-based actions: lethal damage, 0 toughness, 0 loyalty, the legend rule, 0 life, 10 poison, 21 commander damage, and drawing from an empty library.
+- **Online play, free.** One player hosts and friends join with a room code or invite link, from any computer or phone (see [Playing online](#playing-online)).
+- **Phone friendly.** Tapping a card opens a menu with a "Read card" view. Your hand docks to the bottom of the screen, and dialogs slide up from the bottom.
 - **Pass-and-play.** 1–4 players on one screen. Hands are hidden between turns.
+- **Playmat board.** Each player has their own mat:
+  - a life medallion in their commander's colors
+  - creatures in front and lands behind, mirrored for opponents across the table
+  - piles for the command zone, library, graveyard and exile
+- **Matches.** **🏳 Forfeit** ends the game for you. After a winner is decided, **🔁 Rematch** starts a new game with the same decks and keeps a running score. In 1v1 the loser goes first. Works online too.
 - **Quality of life.** Undo (Ctrl+Z), and automatic saving in your browser.
 
 ### What is automatic vs. manual
@@ -81,6 +88,30 @@ node tests/engine.test.mjs
    - The defender clicks their creatures and chooses **Block**.
    - Press Next step to deal damage.
 
+## Playing online
+
+Online play is peer-to-peer (WebRTC via [PeerJS](https://peerjs.com)) and costs nothing to run:
+
+1. **Host.** Choose **Host online**, pick the format, paste your deck and press **Create room**. You'll get a 6-letter room code and an invite link.
+2. **Friends join.** They open the invite link, or choose **Join online** and type the code. Then they enter a name, paste a deck and press **Join room**. Up to 4 players.
+3. **Lobby.** Everyone can see each deck's legality in the lobby. A player can fix their deck and press **Send updated deck**.
+4. **Start.** The host presses **Start game**.
+
+How it works:
+
+- **The host's browser runs the game.** The host must keep the tab open. If the host's tab closes, the game is saved: the host chooses **Resume saved game → Host again**, and everyone rejoins with the same link.
+- **Hidden information stays hidden.** Each player's browser only receives their own hand. Opponents' hands and every library order are hidden. The host's computer does hold the full game, so it's built for playing with people you trust.
+- **Dropped connections.** If you drop, reopen the invite link and join with **the same name** to get your seat back.
+- **Taking turns.** Only the active player normally advances the turn. Anyone can still advance it for a player who has disconnected, after a confirmation.
+- **Chat.** Use the box under the game log.
+
+**If a friend can't connect** (some strict work or school networks block direct connections):
+
+1. Sign up for a free TURN relay, for example the free tier at metered.ca.
+2. Add its details to `EXTRA_ICE_SERVERS` at the top of `js/net.js`.
+
+PeerJS's free public server only introduces the browsers to each other. After that, game data flows directly between players.
+
 ## Project layout
 
 ```
@@ -89,13 +120,14 @@ css/style.css       styling (backdrop: assets/backdrop.jpg)
 js/rules.js         deck parsing & validation, formats, mana costs
 js/scryfall.js      Scryfall API client with caching & rate limiting
 js/game.js          game engine (zones, turns, stack, combat, SBAs, Commander)
-js/main.js          user interface
+js/net.js           online play: PeerJS host/guest, hidden-information filtering
+js/main.js          user interface (setup, lobby, board, phone layout)
 tests/              engine tests (Node)
 ```
 
 ## Ideas for next steps
 
-- Online multiplayer, peer-to-peer via WebRTC (e.g. PeerJS), so friends can play from different computers.
+- A dedicated game server (about $5–10/month) for public matchmaking and hands that are hidden even from the host.
 - Drag-and-drop cards between zones.
 - Attaching Auras and Equipment to permanents.
 

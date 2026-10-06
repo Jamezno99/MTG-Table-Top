@@ -27,18 +27,47 @@ export class Game {
     this.db = db;         // key -> slim card data (cards + tokens)
     this.s = s;           // serialisable game state
     this.undoStack = [];
-    this.onChange = () => {};
+    this.onChange = () => {};  // UI re-render
+    this.onSync = () => {};    // network broadcast (online host)
+  }
+
+  canUndo() { return this.undoStack.length > 0; }
+
+  /**
+   * Starts a fresh game with the same players and decks, in place, so the same
+   * Game object (and online connections) carry on. Keeps the match score.
+   * In a two-player game the loser of the last game goes first.
+   */
+  rematch(byPid = null) {
+    const prev = this.s;
+    if (!prev.setup) throw new Error('This game has no deck information to rematch with.');
+    const losers = prev.players.filter(p => p.lost).map(p => p.id);
+    const first = prev.players.length === 2 && losers.length === 1 ? losers[0] : null;
+    const g = Game.create({ format: prev.setup.format, players: prev.setup.players, db: this.db, first });
+    Object.assign(g.s, { score: prev.score || {}, match: (prev.match || 1) + 1, online: prev.online, settings: prev.settings });
+    this.s = g.s;
+    this.undoStack = [];
+    const who = byPid != null && this.players[byPid] ? `${this.players[byPid].name} started a rematch. ` : '';
+    this.log(`🔁 ${who}Game ${this.s.match} — score: ${this.scoreLine()}.`);
+    this.save();
+    this.onChange();
+    this.onSync();
+  }
+
+  scoreLine() {
+    return this.players.map(p => `${p.name} ${this.s.score[p.id] || 0}`).join(' · ');
   }
 
   // ------------------------------------------------------------ setup
 
   /** players: [{ name, main: [{key, qty}], commanders: [key] }] */
-  static create({ format, players, db }) {
+  static create({ format, players, db, first = null }) {
     const g = new Game(db);
     const f = FORMATS[format] || FORMATS.freeform;
     g.s = {
       format, turn: 0, active: 0, phase: 0, stage: 'mulligan', stack: [], log: [], nextId: 1,
       winner: null, firstPlayer: 0, cmdrNames: {}, settings: { cmdrToCommandZone: true },
+      setup: JSON.parse(JSON.stringify({ format, players })), match: 1, score: {},
       players: players.map((p, i) => ({
         id: i, name: p.name, life: f.life, poison: 0, cmdrDmg: {}, pool: emptyPool(), landsPlayed: 0,
         cmdrCasts: {}, lost: false, drewEmpty: false, mulligans: 0, kept: false, toBottom: 0,
@@ -58,10 +87,10 @@ export class Game {
       shuffle(pl.zones.library);
       g.drawN(pl, 7);
     });
-    g.s.firstPlayer = rnd(players.length);
+    g.s.firstPlayer = first != null && first >= 0 && first < players.length ? first : rnd(players.length);
     g.s.active = g.s.firstPlayer;
     g.log(`Format: ${f.name}. Starting life ${f.life}.`);
-    g.log(`${g.s.players[g.s.firstPlayer].name} was chosen at random to go first.`);
+    g.log(`${g.s.players[g.s.firstPlayer].name} ${first != null ? 'lost the last game and goes first' : 'was chosen at random to go first'}.`);
     g.log(`Mulligans: London mulligan${g.freeMulligan() ? ', first mulligan is free' : ''}.`);
     g.save();
     return g;
@@ -193,14 +222,42 @@ export class Game {
     this.sba();
     this.save();
     this.onChange();
+    this.onSync();
   }
   undo() {
     const prev = this.undoStack.pop();
     if (!prev) return false;
     this.s = JSON.parse(prev);
+    this.log('↶ Last action undone.');
     this.save();
     this.onChange();
+    this.onSync();
     return true;
+  }
+
+  /** Chat / notes go to the log without touching the undo history. */
+  chat(pid, text) {
+    const t = String(text || '').trim().slice(0, 300);
+    if (!t) return;
+    this.log(`💬 ${this.players[pid] ? this.players[pid].name : '?'}: ${t}`);
+    this.save();
+    this.onChange();
+    this.onSync();
+  }
+
+  /** Returns copies of the top n library cards (top first). */
+  peekTop(pid, n, quiet = false) {
+    const pl = this.players[pid];
+    const out = JSON.parse(JSON.stringify(pl.zones.library.slice(-n).reverse()));
+    if (!quiet) this.act(() => this.log(`${pl.name} looks at the top ${n} card${n === 1 ? '' : 's'} of their library.`));
+    return out;
+  }
+
+  revealHand(pid) {
+    this.act(() => {
+      const pl = this.players[pid];
+      this.log(`${pl.name} reveals their hand: ${pl.zones.hand.map(c => this.face(c).name).join(', ') || '(empty)'}.`);
+    });
   }
 
   // ------------------------------------------------------------ zone movement
@@ -684,8 +741,10 @@ export class Game {
       this.log(`${this.players[pid].name} gains control of ${this.face(L.inst).name}.`);
     });
   }
-  createToken(pid, key, n = 1, tapped = false) {
+  createToken(pid, key, n = 1, tapped = false, data = null) {
     this.act(() => {
+      if (data) this.db[key] = data;
+      if (!this.db[key]) throw new Error('Unknown token.');
       for (let i = 0; i < n; i++) {
         const t = this.newInst(key, pid);
         t.token = true;
@@ -703,8 +762,10 @@ export class Game {
       this.log(`${this.players[inst.controller].name} creates a token copy of ${this.face(inst).name}.`);
     });
   }
-  addCardToZone(pid, key, zone) {
+  addCardToZone(pid, key, zone, data = null) {
     this.act(() => {
+      if (data) this.db[key] = data;
+      if (!this.db[key]) throw new Error('Unknown card.');
       const c = this.newInst(key, pid);
       if (zone === 'battlefield') this._enterBf(c, pid);
       else this.players[pid].zones[zone].push(c);
@@ -864,7 +925,9 @@ export class Game {
     const alive = this.alive();
     if (alive.length === 1 && this.players.length > 1) {
       this.s.winner = alive[0].id;
-      this.log(`🏆 ${alive[0].name} wins the game!`);
+      this.s.score = this.s.score || {};
+      this.s.score[alive[0].id] = (this.s.score[alive[0].id] || 0) + 1;
+      this.log(`🏆 ${alive[0].name} wins the game! Score: ${this.scoreLine()}.`);
     } else if (this.s.active === pl.id && alive.length) {
       this._cleanup();
       this._beginTurn(this._nextAlive(pl.id));
