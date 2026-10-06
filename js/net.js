@@ -11,6 +11,12 @@
 import { Game, RuleError } from './game.js';
 
 const PREFIX = 'mtgtab-';
+
+// Bump this whenever the messages between host and guests change, so an old
+// APK and a newer website (or vice versa) say "please update" instead of breaking.
+export const PROTOCOL = 1;
+const VERSION_MSG = (yours, host) => `Version mismatch: you have version ${yours ?? 'unknown'} and the host has version ${host ?? 'unknown'}. `
+  + 'Whoever is behind should update (download the newest APK, or refresh the website), then try again.';
 const PEERJS_URL = 'https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js';
 
 // Optional: if some players can't connect (strict school/work networks), add a
@@ -55,7 +61,9 @@ export function makeCode() {
 }
 
 export function inviteLink(code) {
-  const u = new URL(location.href);
+  // The Android app sets window.MTG_WEB_APP_URL to the GitHub Pages site, so
+  // invite links work for everyone (app users can also just type the code).
+  const u = new URL(window.MTG_WEB_APP_URL || location.href);
   u.search = '';
   u.hash = '';
   u.searchParams.set('join', code);
@@ -152,6 +160,7 @@ export class Host {
     let g = this.guests.find(x => x.conn === conn);
 
     if (msg.t === 'hello') {
+      if (msg.v !== PROTOCOL) return this._send(conn, { t: 'error', msg: VERSION_MSG(msg.v, PROTOCOL), v: PROTOCOL });
       const name = String(msg.name || 'Guest').trim().slice(0, 24) || 'Guest';
       if (this.game) {
         // Rejoin: match an existing seat by name.
@@ -161,7 +170,7 @@ export class Host {
         if (!g) { g = { id: this.nextGuestId++, name, seat }; this.guests.push(g); }
         if (g.conn && g.conn !== conn) try { g.conn.close(); } catch { /* ignore */ }
         Object.assign(g, { conn, connected: true });
-        this._send(conn, { t: 'start', seat, code: this.code });
+        this._send(conn, { t: 'start', seat, code: this.code, v: PROTOCOL });
         this._send(conn, { t: 'db', add: this.game.db, reset: true });
         this._sendState(g);
         this.game.chat(seat, '(reconnected)');
@@ -198,14 +207,14 @@ export class Host {
 
   /** Lobby info everyone sees while waiting. */
   broadcastLobby(info) {
-    for (const g of this.guests) this._send(g.conn, { t: 'lobby', ...info, you: g.name });
+    for (const g of this.guests) this._send(g.conn, { t: 'lobby', ...info, you: g.name, v: PROTOCOL });
   }
 
   start(game) {
     this.game = game;
     this.guests.forEach((g, i) => { g.seat = i + 1; });
     for (const g of this.guests) {
-      this._send(g.conn, { t: 'start', seat: g.seat, code: this.code });
+      this._send(g.conn, { t: 'start', seat: g.seat, code: this.code, v: PROTOCOL });
       this._send(g.conn, { t: 'db', add: game.db, reset: true });
     }
     Object.keys(game.db).forEach(k => this.sentKeys.add(k));
@@ -278,7 +287,7 @@ export class Guest {
         clearTimeout(timer);
         this.conn = conn;
         this.connected = true;
-        conn.send({ t: 'hello', name, deck: deckText });
+        conn.send({ t: 'hello', name, deck: deckText, v: PROTOCOL });
         res();
       });
       conn.on('data', msg => this._onMsg(msg));
@@ -312,6 +321,11 @@ export class Guest {
   _onMsg(msg) {
     if (!msg || typeof msg !== 'object') return;
     const game = this.game;
+    if ((msg.t === 'start' || msg.t === 'lobby') && msg.v !== PROTOCOL) {
+      this.onError(VERSION_MSG(PROTOCOL, msg.v));
+      try { this.conn.close(); } catch { /* ignore */ }
+      return;
+    }
     switch (msg.t) {
       case 'lobby': this.onLobby(msg); break;
       case 'error': this.onError(msg.msg); break;

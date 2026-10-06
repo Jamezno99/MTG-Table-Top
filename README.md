@@ -112,6 +112,38 @@ How it works:
 
 PeerJS's free public server only introduces the browsers to each other. After that, game data flows directly between players.
 
+## Android app (MTG Sim)
+
+This repository also builds an Android app called **MTG Sim** (with its own icon). It is the same code as the website wrapped in an app, so online play works in every direction: app with app, app with website, and website with website.
+
+**How you get the APK:** GitHub builds it for you, free.
+
+1. Push this repository to GitHub (the workflow is in `.github/workflows/android-apk.yml`).
+2. GitHub builds the app in a few minutes. Watch it in the **Actions** tab.
+3. The APK appears on your repository's **Releases** page as **MTG Sim for Android → `MTG-Sim.apk`**.
+4. Every later push rebuilds it, so the app always matches the website.
+
+**Installing:**
+
+1. On an Android phone, open the Releases page and download `MTG-Sim.apk`.
+2. Open the file. Android asks you to allow installs from your browser or files app; allow it once.
+3. Send friends the same Releases link.
+
+**Signing key (do this once, recommended):** an Android update only installs over the old app if both are signed with the same key.
+
+1. Add the two secrets from the private `mtg-sim-signing-key.zip` under **Settings → Secrets and variables → Actions**:
+   - `ANDROID_KEYSTORE_BASE64`
+   - `ANDROID_KEYSTORE_PASSWORD`
+2. Without them the app still builds and installs, but each new version needs the old one uninstalled first, which also clears its saved decks.
+3. Never commit the key file to the repository.
+
+**Good to know:**
+
+- **Invite links.** An invite link made in the app opens your GitHub Pages website, so friends without the app can join in the browser. App users can just type the room code.
+- **Keeping the game alive.** The app keeps the screen on, because whoever hosts has to keep the game open.
+- **Version check.** If an old app and a newer website (or the other way round) try to play together, both get a clear "version mismatch, please update" message instead of a broken game. If you change the online messages in `js/net.js`, bump `PROTOCOL` there.
+- **Building on your own computer (optional).** Copy `index.html`, `css/`, `js/` and `assets/` into `android/app/src/main/assets/www/`, then open the `android` folder in Android Studio.
+
 ## Project layout
 
 ```
@@ -122,6 +154,9 @@ js/scryfall.js      Scryfall API client with caching & rate limiting
 js/game.js          game engine (zones, turns, stack, combat, SBAs, Commander)
 js/net.js           online play: PeerJS host/guest, hidden-information filtering
 js/main.js          user interface (setup, lobby, board, phone layout)
+js/config.js        deployment settings (the Android build fills in the website address)
+android/            the MTG Sim Android app (WebView wrapper, icons)
+.github/workflows/  builds the APK on every push
 tests/              engine tests (Node)
 ```
 

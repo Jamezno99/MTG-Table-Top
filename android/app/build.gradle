@@ -1,0 +1,49 @@
+plugins {
+    id 'com.android.application'
+}
+
+// Signing: the GitHub workflow sets KEYSTORE_FILE / KEYSTORE_PASSWORD from repo
+// secrets. Without them the APK is signed with a throwaway debug key.
+def keystoreFile = System.getenv('KEYSTORE_FILE')
+def keystorePassword = System.getenv('KEYSTORE_PASSWORD')
+def hasReleaseKey = keystoreFile != null && !keystoreFile.isEmpty() && file(keystoreFile).exists()
+
+android {
+    namespace 'com.mtgsim.app'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'com.mtgsim.app'
+        minSdk 24
+        targetSdk 35
+        versionCode((System.getenv('VERSION_CODE') ?: '1') as int)
+        versionName "1.0." + (System.getenv('VERSION_CODE') ?: '0')
+    }
+
+    signingConfigs {
+        release {
+            if (hasReleaseKey) {
+                storeFile file(keystoreFile)
+                storePassword keystorePassword
+                keyAlias System.getenv('KEY_ALIAS') ?: 'mtgsim'
+                keyPassword System.getenv('KEY_PASSWORD') ?: keystorePassword
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig hasReleaseKey ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    implementation 'androidx.webkit:webkit:1.11.0'
+}
