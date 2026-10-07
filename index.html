@@ -16,6 +16,56 @@
   <script src="js/config.js"></script>
 </head>
 <body>
+  <!-- Boot screen ("The Draw", chaotic shuffle): shows instantly, before the app's scripts load -->
+  <div id="boot" aria-hidden="true">
+    <div class="boot-bg"><img src="assets/backdrop.jpg" alt=""></div>
+    <div class="boot-stage">
+      <div class="boot-deckwrap">
+        <div class="boot-deck">
+          <div class="boot-rest" id="boot-rest"></div>
+          <div class="boot-top"><div class="boot-face back"></div><div class="boot-face front"><img src="assets/icon-512.png" alt=""></div></div>
+        </div>
+      </div>
+      <div class="boot-title">MTG <span class="w" id="boot-name">Tabletop</span></div>
+      <div class="boot-sub">Shuffling up…</div>
+    </div>
+  </div>
+  <script>
+    window.__bootStart = Date.now();
+    if (location.host === 'appassets.androidplatform.net') document.getElementById('boot-name').textContent = 'Sim';
+    // Chaotic shuffle: cards burst out of the deck, tumble around the screen on
+    // random paths, crash into a messy pile, then snap square. Different every launch.
+    (function () {
+      var rest = document.getElementById('boot-rest');
+      if (!rest.animate || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+      var rnd = function (a, b) { return a + Math.random() * (b - a); };
+      var W = innerWidth, H = innerHeight, r = rest.getBoundingClientRect();
+      var k = r.width / 170 || 1;   // the deck is scaled down on phones
+      var ox = (W / 2 - (r.left + r.width / 2)) / k, oy = (H / 2 - (r.top + r.height / 2)) / k;
+      for (var i = 0; i < 12; i++) {
+        var c = document.createElement('div');
+        c.className = 'boot-cb';
+        rest.appendChild(c);
+        var rot = rnd(-30, 30), pts = [[0, 0]];
+        for (var j = 0; j < 3; j++) pts.push([ox + rnd(-W, W) * 0.42 / k, oy + rnd(-H, H) * 0.4 / k]);
+        pts.push([rnd(-22, 22), rnd(-16, 16)]);
+        var offs = [0, 0.22, 0.5, 0.76, 1], frames = [];
+        for (var n = 0; n < pts.length; n++) {
+          var last = n === pts.length - 1;
+          if (n) rot += rnd(-420, 420);
+          frames.push({ transform: 'translate(' + pts[n][0] + 'px,' + pts[n][1] + 'px) rotate(' + (last ? rnd(-25, 25) : rot) + 'deg) scale(' + (n === 0 || last ? 1 : rnd(0.7, 1.15)) + ')', opacity: 1, offset: offs[n] });
+        }
+        c.animate(frames, { duration: rnd(1900, 2200), delay: rnd(150, 350), easing: 'cubic-bezier(.5,0,.45,1)', fill: 'forwards' });
+        c.animate([
+          { transform: 'translate(' + rnd(-22, 22) + 'px,' + rnd(-16, 16) + 'px) rotate(' + rnd(-25, 25) + 'deg)' },
+          { transform: 'translate(' + rnd(-6, 6) + 'px,' + rnd(-6, 6) + 'px) rotate(' + rnd(-6, 6) + 'deg)', offset: 0.55 },
+          { transform: 'translate(0,0) rotate(0deg)' }
+        ], { duration: 420, delay: 2520, easing: 'cubic-bezier(.3,1.4,.4,1)', fill: 'forwards' });
+      }
+    })();
+    // Failsafe: never leave the boot screen up if the app fails to load.
+    setTimeout(function () { var b = document.getElementById('boot'); if (b) b.remove(); }, 9000);
+  </script>
   <header id="topbar">
     <div class="brand">MTG <span>Tabletop</span></div>
     <div id="turninfo"></div>

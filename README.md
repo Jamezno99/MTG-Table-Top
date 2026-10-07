@@ -28,6 +28,7 @@ A browser-based Magic: The Gathering simulator with live card data, deck legalit
   - creatures in front and lands behind, mirrored for opponents across the table
   - piles for the command zone, library, graveyard and exile
 - **Matches.** **🏳 Forfeit** ends the game for you. After a winner is decided, **🔁 Rematch** starts a new game with the same decks and keeps a running score. In 1v1 the loser goes first. Works online too.
+- **Animated.** A boot screen when the app opens, plus animation for cards drawn, played and tapped, life changes, mana, phase changes and each new turn. It all switches off when the device is set to reduce motion.
 - **Quality of life.** Undo (Ctrl+Z), and automatic saving in your browser.
 
 ### What is automatic vs. manual
@@ -75,9 +76,12 @@ node tests/engine.test.mjs
    - Pick a format and the number of players.
    - Paste a decklist for each player, or click a sample deck.
    - For Commander, put the commander under a `Commander` heading or add `*CMDR*` after its name.
+   - Moxfield's plain-text export works as-is: the deck comes first, then the commander on its own after a blank line. The app detects it and says so in the report. In 60-card formats, that last group is read as the sideboard.
    - Click **Check decks & start**.
 2. **Mulligan.** Each player chooses Keep or Mulligan. Use the "viewing" selector to switch players.
-3. **Take turns.**
+3. **Take turns.** The turn tracker in the middle of the table shows whose turn it is, the phase (Beginning, Main 1, Combat, Main 2, End) and the step. Tap a later phase to skip ahead to it.
+   - Above your hand, the action bar has one-tap Draw, Draw X, Scry, Search, Shuffle, Mill, Token and Untap all. Tapping your library pile does the same, and **D** draws a card.
+
    - Press **Next step** (or Space) to advance.
    - **Click** a card for its actions.
    - **Double-click** to cast/play a card from hand, or to tap a permanent for mana.

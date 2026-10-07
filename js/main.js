@@ -1,6 +1,6 @@
 // main.js — UI: setup & online lobby, board rendering, menus and dialogs.
 import { fetchCards, searchCards } from './scryfall.js';
-import { parseDecklist, validateDeck, FORMATS, manaOptions, SAMPLE_DECKS, COLORS } from './rules.js';
+import { parseDecklist, validateDeck, resolveTrailing, FORMATS, manaOptions, SAMPLE_DECKS, COLORS } from './rules.js';
 import { Game, PHASES, RuleError } from './game.js';
 import { Host, Guest, makeCode, inviteLink } from './net.js';
 
@@ -252,7 +252,10 @@ async function checkDeck(text, format) {
   const names = [...parsed.main, ...parsed.commanders, ...parsed.side].map(e => e.name);
   const lookup = await fetchCards(names, msg => { $('#progress').textContent = msg; });
   $('#progress').textContent = '';
-  return { parsed, lookup, ...validateDeck(parsed, lookup, format) };
+  resolveTrailing(parsed, lookup, format);
+  const result = validateDeck(parsed, lookup, format);
+  if (parsed.detected) result.warnings.unshift(parsed.detected + ' (from the last line after a blank line).');
+  return { parsed, lookup, ...result };
 }
 
 function reportHTML(name, r, format) {
@@ -447,6 +450,7 @@ function showGuestLobby(msg) {
 // ---------------- entering the game
 
 function startGame(g, net = null) {
+  resetAnimations();
   game = g;
   online = net ? { status: 'connected', ...net } : null;
   game.onChange = render;
@@ -574,7 +578,7 @@ function pileHTML(pl, z, label, icon) {
     const f = game.face(arr[n - 1]);
     face = f.image ? `<img src="${f.image.small}" alt="${esc(f.name)}" loading="lazy">` : `<div class="textcard"><b>${esc(f.name)}</b></div>`;
   }
-  return `<button class="pile ${z} ${n ? '' : 'none'}" data-act="zone" data-z="${z}" title="${label}: ${n}">
+  return `<button class="pile ${z} ${n ? '' : 'none'}" data-act="${z === 'library' ? 'libmenu' : 'zone'}" data-z="${z}" title="${label}: ${n}">
     <span class="slot ${z === 'library' && n > 1 ? 'stacked' : ''}">${face}</span>
     <span class="plbl">${icon} ${label}</span><span class="pcount">${n}</span></button>`;
 }
@@ -646,24 +650,79 @@ function matHTML(pl, opp) {
   </section>`;
 }
 
-function midlineHTML() {
+// ---------------- turn tracker (the band across the middle of the table)
+
+const PHASE_GROUPS = [
+  { name: 'Beginning', icon: '☀', steps: [0, 1, 2] },
+  { name: 'Main 1', icon: '✦', steps: [3] },
+  { name: 'Combat', icon: '⚔', steps: [4, 5, 6, 7, 8] },
+  { name: 'Main 2', icon: '✦', steps: [9] },
+  { name: 'End', icon: '☾', steps: [10, 11] },
+];
+const STEP_SHORT = ['Untap', 'Upkeep', 'Draw', 'Main', 'Begin', 'Attackers', 'Blockers', 'Damage', 'End', 'Main', 'End step', 'Cleanup'];
+const STEP_HINT = {
+  'Untap': 'Permanents untap.',
+  'Upkeep': '"At the beginning of your upkeep" abilities happen now.',
+  'Draw': 'The active player has drawn for the turn.',
+  'Main 1': 'Play a land and cast creatures, sorceries, artifacts and enchantments.',
+  'Beginning of Combat': 'Last chance for effects before attackers are chosen.',
+  'Declare Attackers': 'Tap your creatures → ⚔ Attack, then press Next.',
+  'Declare Blockers': 'Defending players tap their creatures → 🛡 Block, then Next.',
+  'Combat Damage': 'Combat damage was dealt automatically. Check the log.',
+  'End of Combat': '"End of combat" abilities happen now.',
+  'Main 2': 'Play a land if you haven\'t yet, and cast more spells.',
+  'End': '"At the beginning of the end step" abilities happen now.',
+  'Cleanup': 'Discard down to 7 cards. Damage wears off.',
+};
+
+function trackerHTML() {
   const s = game.s;
   const bf = game.players.flatMap(p => p.zones.battlefield);
   const byDef = {};
   for (const c of bf) if (c.attacking != null) byDef[c.attacking] = (byDef[c.attacking] || 0) + 1;
-  const combat = Object.entries(byDef).map(([d, n]) => `<span class="atk">⚔ ${n} attacking ${esc(game.players[d].name)}</span>`).join('');
-  const label = s.winner != null ? `🏆 ${esc(game.players[s.winner].name)} wins game ${s.match || 1}`
-    : s.stage === 'mulligan' ? `Mulligans${(s.match || 1) > 1 ? ` · Game ${s.match}` : ''}`
-    : `<b>${esc(game.players[s.active].name)}</b> · ${PHASES[s.phase]}`;
-  const stack = s.stack.length ? `<span class="stk">⧉ ${s.stack.length} on the stack</span>` : '';
-  return `<div class="midline"><span class="mid">${label}</span>${combat}${stack}</div>`;
+  const chips = Object.entries(byDef).map(([d, n]) => `<span class="atk">⚔ ${n} attacking ${esc(game.players[d].name)}</span>`).join('')
+    + (s.stack.length ? `<span class="stk">⧉ ${s.stack.length} on the stack</span>` : '');
+  if (s.winner != null) return `<div class="tracker done"><div class="who">🏆 <b>${esc(game.players[s.winner].name)}</b> wins game ${s.match || 1}</div></div>`;
+  if (s.stage === 'mulligan') return `<div class="tracker"><div class="who">🃏 <b>Mulligans</b>${(s.match || 1) > 1 ? ` · Game ${s.match}` : ''}</div><div class="hint">Each player keeps or mulligans their opening hand.</div></div>`;
+  const act = game.players[s.active];
+  const accent = accentColors(act)[0];
+  const mine = online ? s.active === mySeat() : true;
+  const step = PHASES[s.phase];
+  const groups = PHASE_GROUPS.map(g => {
+    const state = g.steps.includes(s.phase) ? 'on' : g.steps[g.steps.length - 1] < s.phase ? 'past' : 'next';
+    return `<button class="grp ${state}" data-jump="${g.steps[0]}" ${state !== 'next' ? 'disabled' : ''} title="${state === 'next' ? `Skip ahead to ${g.name}` : g.name}">
+      <span class="gi">${g.icon}</span><span class="gn">${g.name}</span></button>`;
+  }).join('<span class="sep"></span>');
+  const cur = PHASE_GROUPS.find(g => g.steps.includes(s.phase));
+  const subs = cur.steps.length > 1 ? `<div class="subs">${cur.steps.map(i =>
+    `<button class="sub ${i === s.phase ? 'on' : i < s.phase ? 'past' : 'next'}" data-jump="${i}" ${i <= s.phase ? 'disabled' : ''}>${STEP_SHORT[i]}</button>`).join('')}</div>` : '';
+  const who = online && mine ? 'Your turn' : `${esc(act.name)}'s turn`;
+  const hint = !mine && online ? `You can cast instants and use abilities. ${STEP_HINT[step]}` : STEP_HINT[step];
+  return `<div class="tracker ${mine ? 'mine' : ''}" style="--accent:${accent}">
+    <div class="who"><span class="dot"></span><b>${who}</b><span class="tn">Turn ${s.turn}</span>${chips}</div>
+    <div class="groups">${groups}</div>
+    ${subs}
+    <div class="hint"><b>${esc(step)}</b> — ${esc(hint)}</div>
+  </div>`;
+}
+
+/** Advance step by step until the given step (running every step's rules on the way). */
+function jumpTo(target) {
+  const turn = game.s.turn;
+  run(async force => {
+    if (online && game.s.active !== mySeat() && !force)
+      throw new RuleError(`It's ${game.players[game.s.active].name}'s turn. Advance it for them anyway?`);
+    for (let guard = 0; guard < 12 && game.s.turn === turn && game.s.phase < target && game.s.winner == null; guard++) {
+      await game.nextStep({ force });
+    }
+  });
 }
 
 function renderBoard() {
   const opps = game.players.filter(p => p.id !== viewer);
   const me = game.players[viewer];
   $('#board').innerHTML = (opps.length ? `<div class="opps n${opps.length}">${opps.map(p => matHTML(p, true)).join('')}</div>` : '')
-    + midlineHTML() + matHTML(me, false);
+    + trackerHTML() + matHTML(me, false);
   renderWinner();
 }
 
@@ -739,13 +798,23 @@ function renderHand() {
     }
   } else if (PHASES[s.phase] === 'Cleanup' && s.active === pl.id && pl.zones.hand.length > 7) {
     notice = `<span class="notice">Discard ${pl.zones.hand.length - 7}: tap a card → To graveyard.</span>`;
-  } else if (PHASES[s.phase] === 'Declare Attackers' && s.active === viewer) {
-    notice = '<span class="notice">Tap your creatures → Attack, then Next.</span>';
   } else if (PHASES[s.phase] === 'Declare Blockers' && s.active !== viewer && game.players.flatMap(p => p.zones.battlefield).some(c => c.attacking === viewer)) {
     notice = '<span class="notice">You are being attacked: tap your untapped creatures → Block.</span>';
   }
   const hidden = handHidden;
+  const bar = s.stage === 'play' && s.winner == null && !pl.lost ? `<div class="actionbar" role="toolbar" aria-label="Quick actions">
+      <button class="qa primary" data-quick="draw" title="Draw a card (D)"><span class="qi">🂠</span>Draw</button>
+      <button class="qa" data-quick="drawx" title="Draw several cards"><span class="qi">🂠+</span>Draw X</button>
+      <button class="qa" data-quick="scry" title="Look at the top cards of your library"><span class="qi">👁</span>Scry</button>
+      <button class="qa" data-quick="search" title="Search your library"><span class="qi">🔍</span>Search</button>
+      <button class="qa" data-quick="shuffle" title="Shuffle your library"><span class="qi">🔀</span>Shuffle</button>
+      <button class="qa" data-quick="mill" title="Mill cards"><span class="qi">🪦</span>Mill</button>
+      <button class="qa" data-quick="token" title="Create a token"><span class="qi">⧉</span>Token</button>
+      <button class="qa" data-quick="untap" title="Untap all your permanents"><span class="qi">⟳</span>Untap all</button>
+      <button class="qa" data-quick="more" title="All player actions"><span class="qi">⋯</span>More</button>
+    </div>` : '';
   $('#handbar').innerHTML = `<div class="panel">
+    ${bar}
     <div class="handhead"><h3 style="margin:0">${online ? 'Your hand' : esc(pl.name) + "'s hand"} (${pl.zones.hand.length})</h3>
       ${controls}${notice}<span class="spacer"></span>
       ${online ? '' : `<button class="small" data-hand="hide">${hidden ? 'Show hand' : 'Hide hand'}</button>`}</div>
@@ -769,7 +838,17 @@ function renderSide() {
   if (atBottom || !log.dataset.init) { log.scrollTop = log.scrollHeight; log.dataset.init = '1'; }
 }
 
+// Several things can ask for a redraw during one action (the engine's change
+// event, then the action wrapper). Coalesce them into a single redraw so the
+// change-driven animations see each change exactly once.
+let renderQueued = false;
 function render() {
+  if (renderQueued) return;
+  renderQueued = true;
+  queueMicrotask(() => { renderQueued = false; renderNow(); });
+}
+
+function renderNow() {
   if (!game || !game.s) return;
   if (autoViewer && game.s.stage === 'play' && game.s.active !== lastActive) {
     viewer = game.s.active;
@@ -777,6 +856,119 @@ function render() {
   }
   lastActive = game.s.active;
   renderTop(); renderBoard(); renderHand(); renderSide();
+  animateChanges();
+}
+
+// ================================================================ animations
+// After every render, compare with the previous state and animate only what
+// changed: new cards, taps, life, piles, mana, phase and turn.
+
+const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+let anim = { ready: false };
+
+function resetAnimations() { anim = { ready: false }; liveFx = []; }
+
+function zoneKeyOf(el) {
+  if (el.closest('.modal, #menu')) return null;
+  if (el.closest('#handbar')) return 'hand';
+  if (el.closest('.stackitem')) return 'stack';
+  const mat = el.closest('.mat');
+  if (!mat) return null;
+  return `p${mat.dataset.pid}:${el.closest('.cmd') ? 'cmd' : 'bf'}`;
+}
+
+// Effects started in the last moment are re-applied if the screen is redrawn
+// again right away (actions can trigger two redraws back to back).
+const REAPPLY_MS = 200;
+let liveFx = [];
+
+function applyFx(fx) {
+  for (const el of document.querySelectorAll(fx.sel)) {
+    if (el.closest('.modal, #menu')) continue;
+    if (fx.cls && !el.classList.contains(fx.cls)) el.classList.add(fx.cls);
+    if (fx.float && !el.querySelector('.lifefx')) {
+      const f = document.createElement('span');
+      f.className = `lifefx ${fx.float.dir}`;
+      f.textContent = fx.float.text;
+      el.append(f);
+    }
+  }
+}
+
+function animateChanges() {
+  if (!game || !game.s) return;
+  const s = game.s;
+  const now = Date.now();
+  liveFx = liveFx.filter(f => f.until > now);
+  const zones = new Map(), tapped = new Map();
+  const cards = document.querySelectorAll('#game [data-iid]');
+  for (const el of cards) {
+    const key = zoneKeyOf(el);
+    if (!key) continue;
+    zones.set(el.dataset.iid, key);
+    tapped.set(el.dataset.iid, el.classList.contains('tapped'));
+  }
+  const lives = {}, piles = {}, pools = {};
+  for (const p of game.players) {
+    lives[p.id] = p.life;
+    piles[p.id] = { graveyard: p.zones.graveyard.length, exile: p.zones.exile.length, library: p.zones.library.length };
+    pools[p.id] = { ...p.pool };
+  }
+  const turnKey = `${s.match || 1}:${s.turn}:${s.active}`;
+  const fresh = [];
+  const add = (sel, cls, float) => fresh.push({ sel, cls, float, until: now + REAPPLY_MS });
+
+  if (anim.ready && !reducedMotion()) {
+    for (const [id, key] of zones) {
+      const sel = `#game [data-iid="${id}"]`;
+      if (anim.zones.get(id) !== key) add(sel, key === 'hand' ? 'a-hand' : key === 'stack' ? 'a-stack' : key.endsWith('cmd') ? 'a-cmd' : 'a-bf');
+      else if (anim.tapped.get(id) !== tapped.get(id)) add(sel, tapped.get(id) ? 'a-tap' : 'a-untap');
+    }
+    for (const p of game.players) {
+      const mat = `.mat[data-pid="${p.id}"]`;
+      const d = p.life - (anim.lives[p.id] ?? p.life);
+      if (d) add(`${mat} .medal`, d < 0 ? 'a-hurt' : 'a-heal', { dir: d < 0 ? 'down' : 'up', text: (d > 0 ? '+' : '−') + Math.abs(d) });
+      const prev = anim.piles[p.id] || {};
+      for (const z of ['graveyard', 'exile']) if (piles[p.id][z] > (prev[z] ?? piles[p.id][z])) add(`${mat} .pile.${z}`, 'a-bump');
+      if (piles[p.id].library < (prev.library ?? piles[p.id].library)) add(`${mat} .pile.library`, 'a-draw');
+      const pp = anim.pools[p.id] || {};
+      for (const k of Object.keys(pools[p.id])) if ((pools[p.id][k] || 0) > (pp[k] || 0)) add(`${mat} .mp.${k}`, 'a-pop');
+    }
+    if (anim.phase !== s.phase || anim.stage !== s.stage) {
+      add('.tracker .grp.on', 'a-pop');
+      add('.tracker .sub.on', 'a-pop');
+      add('.tracker .hint', 'a-fade');
+    }
+    if (s.stage === 'play' && s.winner == null && anim.turnKey !== turnKey) turnBanner();
+  }
+  liveFx.push(...fresh);
+  for (const fx of liveFx) applyFx(fx);
+  anim = { ready: true, zones, tapped, lives, piles, pools, phase: s.phase, stage: s.stage, turnKey };
+}
+
+function turnBanner() {
+  const s = game.s;
+  const act = game.players[s.active];
+  const mine = online ? s.active === mySeat() : false;
+  document.getElementById('turnbanner')?.remove();
+  const b = document.createElement('div');
+  b.id = 'turnbanner';
+  b.style.setProperty('--accent', accentColors(act)[0]);
+  b.innerHTML = `<div class="tb-inner"><span class="tb-turn">Turn ${s.turn}</span><span class="tb-name">${mine ? 'Your turn' : esc(act.name)}</span></div>`;
+  document.body.append(b);
+  setTimeout(() => b.remove(), 1700);
+}
+
+// ---------------- boot screen
+
+function hideBoot() {
+  const b = document.getElementById('boot');
+  if (!b) return;
+  const minShow = reducedMotion() ? 200 : 4400;
+  const wait = Math.max(0, minShow - (Date.now() - (window.__bootStart || Date.now())));
+  const go = () => { if (!b.isConnected) return; b.classList.add('out'); setTimeout(() => b.remove(), 650); };
+  b.addEventListener('click', go, { once: true });
+  setTimeout(go, wait);
 }
 
 function showPreview(inst) {
@@ -1111,6 +1303,40 @@ function moreMenu(ev) {
   openMenu(items, ev.clientX, ev.clientY);
 }
 
+// ================================================================ quick actions
+
+async function quickAction(kind, pid, ev) {
+  const pl = game.players[pid];
+  switch (kind) {
+    case 'draw': return run(() => game.draw(pid, 1));
+    case 'drawx': { const n = await askNumber('Draw how many cards?', 2); if (n > 0) run(() => game.draw(pid, n)); return; }
+    case 'scry': { const n = await askNumber('Look at how many cards from the top?', 1, 'Then tap each card to keep it on top, put it on the bottom, or move it elsewhere.'); if (n > 0) zoneView(pid, 'library', { topN: n }); return; }
+    case 'search': return zoneView(pid, 'library');
+    case 'shuffle': return run(() => game.shuffleLibrary(pid));
+    case 'mill': { const n = await askNumber('Mill how many cards?', 1); if (n > 0) run(() => game.mill(pid, n)); return; }
+    case 'token': return tokenDialog(pid, true);
+    case 'untap': return run(() => game.untapAll(pid));
+    case 'more': return playerMenu(pid, ev);
+  }
+  return pl;
+}
+
+function libraryMenu(pid, ev) {
+  const pl = game.players[pid];
+  const mine = !online || pid === mySeat();
+  const n = pl.zones.library.length;
+  const items = [{ header: `${pl.name}'s library · ${n} card${n === 1 ? '' : 's'}` },
+    { label: '🂠 Draw a card', fn: () => run(() => game.draw(pid, 1)) },
+    { label: '🂠 Draw X cards…', fn: () => quickAction('drawx', pid, ev) }];
+  if (mine) items.push(
+    { label: '👁 Scry / look at top X…', fn: () => quickAction('scry', pid, ev) },
+    { label: '🔍 Search library', fn: () => zoneView(pid, 'library') });
+  items.push(
+    { label: '🔀 Shuffle', fn: () => run(() => game.shuffleLibrary(pid)) },
+    { label: '🪦 Mill X…', fn: () => quickAction('mill', pid, ev) });
+  openMenu(items, ev.clientX, ev.clientY);
+}
+
 // ================================================================ events
 
 document.addEventListener('click', e => {
@@ -1133,6 +1359,12 @@ document.addEventListener('click', e => {
     if (a === 'reconnect') online.guest.reconnect().then(() => { online.status = 'connected'; render(); }, err => toast(err.message));
     return;
   }
+
+  const jump = e.target.closest('[data-jump]');
+  if (jump && !jump.disabled) return jumpTo(+jump.dataset.jump);
+
+  const quick = e.target.closest('[data-quick]');
+  if (quick) return quickAction(quick.dataset.quick, viewer, e);
 
   const hand = e.target.closest('[data-hand]');
   if (hand) {
@@ -1181,6 +1413,7 @@ document.addEventListener('click', e => {
     }
     if (a === 'cmdrdmg') cmdrDamageDialog(pid);
     if (a === 'zone') zoneView(pid, actEl.dataset.z);
+    if (a === 'libmenu') libraryMenu(pid, e);
     if (a === 'pmenu') playerMenu(pid, e);
   }
 });
@@ -1219,6 +1452,7 @@ document.addEventListener('mouseover', e => {
 document.addEventListener('keydown', e => {
   if (!game || $('#game').hidden || e.target.closest('input, textarea, select') || $('#modal-root').children.length) return;
   if (e.code === 'Space') { e.preventDefault(); advance('nextStep'); }
+  if (e.key === 'd' || e.key === 'D') { if (!e.ctrlKey && !e.metaKey && game.s.stage === 'play') quickAction('draw', viewer, e); }
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); run(() => game.undo()); }
   if (e.key === 'Escape') closeMenu();
 });
@@ -1237,7 +1471,8 @@ window.addEventListener('beforeunload', e => {
 });
 
 // Debug hook for automated tests: open the page with ?debug
-if (new URLSearchParams(location.search).has('debug')) window.__mtg = () => ({ game, online, viewer });
+if (new URLSearchParams(location.search).has('debug')) window.__mtg = () => ({ game, online, viewer, anim });
 
 renderSetup();
 bindSetup();
+hideBoot();

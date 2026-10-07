@@ -27,27 +27,35 @@ const NUMBER_WORDS = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven
 
 /** Parses Arena / MTGO / Moxfield / Archidekt-style text lists. */
 export function parseDecklist(text) {
-  const out = { main: [], side: [], commanders: [] };
+  const out = { main: [], side: [], commanders: [], trailing: [] };
   let section = 'main';
+  let marked = false;      // any explicit section header or *CMDR* / SB: marker
+  let block = [];          // main-deck entries since the last blank line
+  let sawBlank = false;
+  let pendingBlank = false;
   for (const raw of String(text || '').split(/\r?\n/)) {
     let line = raw.trim();
-    if (!line) continue;
+    if (!line) { pendingBlank = true; continue; }
+    if (pendingBlank && block.length) { sawBlank = true; block = []; }
+    pendingBlank = false;
     if (/^(\/\/|#)/.test(line)) {
       const h = line.replace(/^(\/\/|#)\s*/, '').toLowerCase();
+      marked = true;
       if (/^commanders?\b/.test(h)) section = 'commanders';
       else if (/^(sideboard|side|maybeboard|considering)\b/.test(h)) section = 'side';
       else if (/^(deck|main|mainboard|main deck|library)\b/.test(h)) section = 'main';
       continue;
     }
     const low = line.toLowerCase().replace(/:$/, '').replace(/\s*\(\d+\)$/, '');
-    if (['commander', 'commanders'].includes(low)) { section = 'commanders'; continue; }
-    if (['deck', 'main', 'mainboard', 'main deck', 'library'].includes(low)) { section = 'main'; continue; }
-    if (['sideboard', 'side', 'maybeboard', 'considering', 'companion'].includes(low)) { section = 'side'; continue; }
+    if (['commander', 'commanders'].includes(low)) { section = 'commanders'; marked = true; continue; }
+    if (['deck', 'main', 'mainboard', 'main deck', 'library'].includes(low)) { section = 'main'; marked = true; continue; }
+    if (['sideboard', 'side', 'maybeboard', 'considering', 'companion'].includes(low)) { section = 'side'; marked = true; continue; }
 
     let target = section;
-    if (/^SB:\s*/i.test(line)) { target = 'side'; line = line.replace(/^SB:\s*/i, ''); }
+    if (/^SB:\s*/i.test(line)) { target = 'side'; marked = true; line = line.replace(/^SB:\s*/i, ''); }
     if (/\*CMDR\*|\[commander\]|\(commander\)/i.test(line)) {
       target = 'commanders';
+      marked = true;
       line = line.replace(/\*CMDR\*|\[commander\]|\(commander\)/ig, '').trim();
     }
     let qty = 1, name = line;
@@ -63,8 +71,55 @@ export function parseDecklist(text) {
     const list = out[target];
     const existing = list.find(e => e.name.toLowerCase() === name.toLowerCase());
     if (existing) existing.qty += qty; else list.push({ qty, name });
+    if (target === 'main') block.push({ qty, name });
   }
+  // Unlabelled lists (Moxfield / MTGO plain-text export) put the commander, or
+  // the sideboard, in a last group after a blank line. Remember that group;
+  // resolveTrailing() decides what it is once card data is known.
+  if (!marked && sawBlank && block.length) out.trailing = block;
   return out;
+}
+
+function takeFromMain(deck, entries) {
+  for (const t of entries) {
+    const e = deck.main.find(m => m.name.toLowerCase() === t.name.toLowerCase());
+    if (!e) continue;
+    e.qty -= t.qty;
+    if (e.qty <= 0) deck.main.splice(deck.main.indexOf(e), 1);
+  }
+}
+
+/**
+ * For unlabelled decklists: in Commander, a final group of one card (or two
+ * partners) that can be a commander becomes the commander. In 60-card
+ * formats, a final group after a full main deck becomes the sideboard.
+ * Mutates and returns the deck; sets deck.detected to a short description.
+ */
+export function resolveTrailing(deck, lookup, fmtKey) {
+  const tail = deck.trailing || [];
+  const fmt = FORMATS[fmtKey];
+  if (!tail.length || !fmt) return deck;
+  if (fmt.commander) {
+    if (deck.commanders.length || tail.length > 2 || tail.some(e => e.qty !== 1)) return deck;
+    const cards = tail.map(e => lookup(e.name));
+    if (cards.some(c => !c)) return deck;
+    const ok = cards.length === 1
+      ? canBeCommander(cards[0])
+      : cards.every(c => canBeCommander(c) || /\bBackground\b/.test(c.type_line || '')) && canPair(cards[0], cards[1]);
+    if (!ok) return deck;
+    takeFromMain(deck, tail);
+    deck.commanders.push(...tail.map((e, i) => ({ qty: 1, name: cards[i].name })));
+    deck.detected = `Commander detected: ${cards.map(c => c.name).join(' + ')}`;
+  } else if (fmt.legality && !deck.side.length) {
+    const tailCount = tail.reduce((n, e) => n + e.qty, 0);
+    const mainCount = deck.main.reduce((n, e) => n + e.qty, 0);
+    if (tailCount > fmt.sideboard || mainCount - tailCount < fmt.deckSize) return deck;
+    takeFromMain(deck, tail);
+    deck.side.push(...tail.map(e => ({ ...e })));
+    deck.detected = `Sideboard detected: ${tailCount} card${tailCount === 1 ? '' : 's'}`;
+  }
+  deck.trailing = [];
+  return deck;
 }
 
 export function frontType(card) {

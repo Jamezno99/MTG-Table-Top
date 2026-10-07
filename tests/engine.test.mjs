@@ -1,6 +1,6 @@
 // Run with: node tests/engine.test.mjs   (Node 18+; no dependencies)
 import assert from 'node:assert/strict';
-import { parseDecklist, validateDeck, parseCost, payCost, manaOptions, canPair, SAMPLE_DECKS } from '../js/rules.js';
+import { parseDecklist, validateDeck, resolveTrailing, parseCost, payCost, manaOptions, canPair, SAMPLE_DECKS } from '../js/rules.js';
 import { Game, PHASES, RuleError } from '../js/game.js';
 
 let passed = 0;
@@ -225,6 +225,39 @@ test('mana tracker: available mana from untapped sources, clear pool', () => {
   g.addMana(pid, 'R', 2);
   g.clearPool(pid);
   assert.deepEqual(g.players[pid].pool, { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 });
+});
+
+test('Moxfield export: commander listed last after a blank line', () => {
+  const DB2 = { ...DB,
+    'Zada, Hedron Grinder': card({ name: 'Zada, Hedron Grinder', type_line: 'Legendary Creature — Goblin Ally', color_identity: ['R'], power: '3', toughness: '3' }),
+    'Mountain': card({ name: 'Mountain', type_line: 'Basic Land — Mountain' }),
+  };
+  const look = n => DB2[n];
+  const text = '1 Lightning Bolt (2X2) 117\n1 Sol Ring *F*\n97 Mountain\n\n1 Zada, Hedron Grinder\n';
+  const d = resolveTrailing(parseDecklist(text), look, 'commander');
+  assert.deepEqual(d.commanders.map(c => c.name), ['Zada, Hedron Grinder']);
+  assert.ok(!d.main.some(e => e.name.startsWith('Zada')));
+  assert.match(d.detected, /Commander detected: Zada/);
+  assert.deepEqual(validateDeck(d, look, 'commander').errors, []);
+});
+
+test('Moxfield export: partners at the end; non-commander last group stays in the deck', () => {
+  const look = n => DB[n];
+  const p = resolveTrailing(parseDecklist('98 Forest\n\n1 Partner A\n1 Partner B'), look, 'commander');
+  assert.deepEqual(p.commanders.map(c => c.name), ['Partner A', 'Partner B']);
+  const q = resolveTrailing(parseDecklist('1 Hulk\n98 Forest\n\n1 Grizzly Bears'), look, 'commander');
+  assert.equal(q.commanders.length, 0);
+  assert.ok(q.main.some(e => e.name === 'Grizzly Bears'));
+  // explicit headings still win over the blank-line rule
+  const r = resolveTrailing(parseDecklist('Commander\n1 Hulk\n\nDeck\n98 Forest\n\n1 Partner A'), look, 'commander');
+  assert.deepEqual(r.commanders.map(c => c.name), ['Hulk']);
+});
+
+test('MTGO/Moxfield 60-card export: last group becomes the sideboard', () => {
+  const look = n => DB[n];
+  const d = resolveTrailing(parseDecklist('4 Lightning Bolt\n56 Mountain\n\n3 Grizzly Bears'), look, 'modern');
+  assert.deepEqual(d.side, [{ qty: 3, name: 'Grizzly Bears' }]);
+  assert.equal(d.main.reduce((n, e) => n + e.qty, 0), 60);
 });
 
 console.log(`\n${passed} tests passed`);
