@@ -2,8 +2,8 @@
 // state-based actions, Commander rules, and the card-text engine
 // (triggers, effects, static abilities, alternative costs). No DOM.
 
-import { parseCost, payCost, colorNeeds, hasKeyword, FORMATS, RuleError } from './rules.js?v=20261007-2';
-import * as FX from './effects.js?v=20261007-2';
+import { parseCost, payCost, colorNeeds, hasKeyword, FORMATS, RuleError } from './rules.js?v=20261007-3';
+import * as FX from './effects.js?v=20261007-3';
 export { RuleError };
 
 export const PHASES = ['Untap', 'Upkeep', 'Draw', 'Main 1', 'Beginning of Combat', 'Declare Attackers',

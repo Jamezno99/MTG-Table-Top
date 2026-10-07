@@ -1,8 +1,8 @@
 // main.js — UI: setup & online lobby, board rendering, menus and dialogs.
-import { fetchCards, searchCards } from './scryfall.js?v=20261007-2';
-import { parseDecklist, validateDeck, resolveTrailing, FORMATS, SAMPLE_DECKS, COLORS } from './rules.js?v=20261007-2';
-import { Game, PHASES, RuleError } from './game.js?v=20261007-2';
-import { Host, Guest, makeCode, inviteLink } from './net.js?v=20261007-2';
+import { fetchCards, searchCards } from './scryfall.js?v=20261007-3';
+import { parseDecklist, validateDeck, resolveTrailing, FORMATS, SAMPLE_DECKS, COLORS } from './rules.js?v=20261007-3';
+import { Game, PHASES, RuleError } from './game.js?v=20261007-3';
+import { Host, Guest, makeCode, inviteLink } from './net.js?v=20261007-3';
 
 const $ = (s, r = document) => r.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -206,11 +206,131 @@ function renderDeckBoxes() {
     const name = store.get('mtgsim-name-' + i) || `Player ${i + 1}`;
     boxes.push(`<div class="deckbox" data-p="${i}">
       <label>${mode === 'local' ? 'Name' : 'Your name'} <input class="pname-in" value="${esc(name)}" maxlength="24"></label>
-      <textarea placeholder="Commander&#10;1 Atraxa, Praetors' Voice&#10;&#10;Deck&#10;1 Sol Ring&#10;1 Command Tower&#10;…">${esc(saved)}</textarea>
+      <div class="dk-head">
+        <span class="dk-title">Decklist</span><span class="dk-count"></span>
+        <div class="dk-tools">
+          <button class="small" data-deck="library" title="Your saved decks">📂 My decks <span class="dk-n"></span></button>
+          <button class="small" data-deck="save" title="Save this list to My decks">💾 Save</button>
+          <button class="small dk-clear" data-deck="clear" title="Empty the box">✕ Clear</button>
+        </div>
+      </div>
+      <div class="dk-sheet"><textarea spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="1 Sol Ring&#10;1 Command Tower&#10;1 Arcane Signet&#10;…&#10;&#10;1 Atraxa, Praetors' Voice">${esc(saved)}</textarea></div>
       <div class="samples">Sample: ${Object.keys(SAMPLE_DECKS).map(k => `<button class="small" data-sample="${esc(k)}">${esc(k)}</button>`).join('')}</div>
     </div>`);
   }
   $('#decks').innerHTML = boxes.join('');
+  document.querySelectorAll('.deckbox').forEach(updateDeckBox);
+}
+
+// ---------------- saved decks (up to 10, kept in this browser)
+
+const MAX_SAVED = 10;
+const clearedText = {};   // box index -> text removed by "Clear", for undo
+function savedDecks() {
+  try { const v = JSON.parse(store.get('mtgsim-saved-decks') || '[]'); return Array.isArray(v) ? v : []; } catch { return []; }
+}
+function setSavedDecks(list) { store.set('mtgsim-saved-decks', JSON.stringify(list.slice(0, MAX_SAVED))); }
+
+function deckInfo(text) {
+  const d = parseDecklist(text);
+  const sum = l => l.reduce((n, e) => n + e.qty, 0);
+  const cards = sum(d.main) + sum(d.commanders);
+  const cmdrs = d.commanders.length ? d.commanders : d.trailing.length && d.trailing.length <= 2 && sum(d.trailing) <= 2 ? d.trailing : [];
+  return { cards, cmdr: cmdrs.map(e => e.name).join(' & ') };
+}
+
+function updateDeckBox(box) {
+  const ta = box.querySelector('textarea');
+  const { cards, cmdr } = deckInfo(ta.value);
+  box.querySelector('.dk-count').textContent = cards ? `${cards} card${cards === 1 ? '' : 's'}${cmdr ? ' · ' + cmdr : ''}` : 'Empty';
+  box.querySelector('.dk-n').textContent = `${savedDecks().length}/${MAX_SAVED}`;
+  const clr = box.querySelector('.dk-clear');
+  const undo = clearedText[box.dataset.p] != null && !ta.value.trim();
+  clr.dataset.deck = undo ? 'undo' : 'clear';
+  clr.textContent = undo ? '↶ Undo clear' : '✕ Clear';
+  clr.classList.toggle('undo', undo);
+  clr.disabled = !undo && !ta.value.trim();
+  box.querySelector('[data-deck="save"]').disabled = !ta.value.trim();
+}
+const refreshDeckBoxes = () => document.querySelectorAll('.deckbox').forEach(updateDeckBox);
+
+function setBoxText(box, text) {
+  box.querySelector('textarea').value = text;
+  deckChanged();
+  updateDeckBox(box);
+}
+
+async function saveDeckFrom(box) {
+  const text = box.querySelector('textarea').value.trim();
+  if (!text) return;
+  const list = savedDecks();
+  const info = deckInfo(text);
+  const same = list.find(d => d.text.trim() === text);
+  const name = await askText('Save deck as', same ? same.name : info.cmdr || `Deck ${list.length + 1}`, 'Saved on this device. Up to 10 decks.');
+  if (!name) return;
+  const entry = { name: name.slice(0, 40), text, cards: info.cards, saved: Date.now() };
+  const idx = list.findIndex(d => d.name.toLowerCase() === entry.name.toLowerCase());
+  if (idx >= 0) {
+    if (list[idx].text.trim() !== text && !await confirmDlg(`You already have a deck called "${list[idx].name}".\n\nReplace it with this list?`, 'Replace', 'Cancel')) return;
+    list.splice(idx, 1);
+  } else if (list.length >= MAX_SAVED) {
+    return deckLibrary(box, entry);
+  }
+  setSavedDecks([entry, ...list]);
+  refreshDeckBoxes();
+  toast(`Saved "${entry.name}".`);
+}
+
+/** The saved-decks list. With `pending`, the library is full and the player picks a deck to replace. */
+function deckLibrary(box, pending = null) {
+  const draw = () => {
+    const list = savedDecks();
+    m.el.innerHTML = `<div class="lib-head"><h3>${pending ? 'Your decks are full' : 'My decks'} <span class="muted">${list.length}/${MAX_SAVED}</span></h3><button class="btn ghost small" data-close aria-label="Close">✕</button></div>
+      ${pending ? `<p class="muted">You can keep ${MAX_SAVED} decks. Pick one to replace with <b>${esc(pending.name)}</b>.</p>` : ''}
+      ${list.length ? `<ul class="liblist">${list.map((d, i) => `<li>
+          <div class="lib-main"><b>${esc(d.name)}</b><span class="muted">${d.cards || deckInfo(d.text).cards} cards · saved ${new Date(d.saved || 0).toLocaleDateString()}</span></div>
+          <div class="lib-btns">${pending
+            ? `<button class="btn small primary" data-lib="replace" data-i="${i}">Replace</button>`
+            : `<button class="btn small primary" data-lib="load" data-i="${i}">Load</button>
+               <button class="btn small lib-del" data-lib="del" data-i="${i}" aria-label="Delete ${esc(d.name)}">🗑</button>`}</div></li>`).join('')}</ul>`
+        : '<p class="muted libempty">No saved decks yet. Paste a list in the box and press 💾 Save.</p>'}
+      ${!pending && box.querySelector('textarea').value.trim() && list.length < MAX_SAVED ? '<div class="right"><button class="btn" data-lib="savecur">💾 Save the list in the box</button></div>' : ''}`;
+  };
+  const m = openModal('', { wide: false, onClose: refreshDeckBoxes });
+  m.el.classList.add('library');
+  draw();
+  m.el.addEventListener('click', async e => {
+    const b = e.target.closest('[data-lib]');
+    if (!b) return;
+    const list = savedDecks();
+    const i = +b.dataset.i;
+    const act = b.dataset.lib;
+    if (act === 'load') {
+      const cur = box.querySelector('textarea').value;
+      if (cur.trim() && cur.trim() !== list[i].text.trim()) clearedText[box.dataset.p] = cur;
+      setBoxText(box, list[i].text);
+      m.close();
+      toast(`Loaded "${list[i].name}".`);
+    } else if (act === 'del') {
+      if (b.dataset.armed) {
+        const [gone] = list.splice(i, 1);
+        setSavedDecks(list);
+        draw();
+        toast(`Deleted "${gone.name}".`);
+      } else {
+        m.el.querySelectorAll('[data-armed]').forEach(x => { delete x.dataset.armed; x.textContent = '🗑'; x.classList.remove('armed'); });
+        b.dataset.armed = '1'; b.textContent = 'Delete?'; b.classList.add('armed');
+      }
+    } else if (act === 'replace') {
+      list.splice(i, 1, pending);
+      setSavedDecks([pending, ...list.filter(d => d !== pending)]);
+      m.close();
+      toast(`Saved "${pending.name}".`);
+    } else if (act === 'savecur') {
+      m.close();
+      saveDeckFrom(box);
+    }
+  });
 }
 
 function saveDeckInputs() {
@@ -230,13 +350,33 @@ function bindSetup() {
     if (lobby && lobby.host) { lobby.hostReport = null; for (const g of lobby.host.guests) g.report = null; refreshHostLobby(); }
   });
   $('#decks').addEventListener('click', e => {
+    const d = e.target.closest('[data-deck]');
+    if (d) {
+      const box = d.closest('.deckbox');
+      const ta = box.querySelector('textarea');
+      if (d.dataset.deck === 'clear' && ta.value.trim()) { clearedText[box.dataset.p] = ta.value; setBoxText(box, ''); ta.focus(); }
+      else if (d.dataset.deck === 'undo') { setBoxText(box, clearedText[box.dataset.p] || ''); delete clearedText[box.dataset.p]; }
+      else if (d.dataset.deck === 'save') saveDeckFrom(box);
+      else if (d.dataset.deck === 'library') deckLibrary(box);
+      return;
+    }
     const b = e.target.closest('[data-sample]');
     if (!b) return;
-    b.closest('.deckbox').querySelector('textarea').value = SAMPLE_DECKS[b.dataset.sample];
+    const box = b.closest('.deckbox');
+    const ta = box.querySelector('textarea');
+    if (ta.value.trim() && ta.value !== SAMPLE_DECKS[b.dataset.sample]) clearedText[box.dataset.p] = ta.value;
+    ta.value = SAMPLE_DECKS[b.dataset.sample];
     if (mode !== 'join') $('#format').value = 'commander';
     deckChanged();
+    updateDeckBox(box);
   });
   $('#decks').addEventListener('change', e => { if (e.target.matches('textarea')) deckChanged(); });
+  $('#decks').addEventListener('input', e => {
+    if (!e.target.matches('textarea')) return;
+    const box = e.target.closest('.deckbox');
+    if (e.target.value.trim()) delete clearedText[box.dataset.p];
+    updateDeckBox(box);
+  });
   $('#start').addEventListener('click', () => {
     if (mode === 'local') startLocal();
     else if (mode === 'host') lobby ? startHosted() : createRoom();

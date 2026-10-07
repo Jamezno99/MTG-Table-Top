@@ -835,3 +835,69 @@ label.check input { margin-top: 3px; }
 }
 #menu button:not(.mprimary):not(.mability):not(.cancel) { background: rgba(255,255,255,.04); border-color: rgba(255,255,255,.07); }
 #menu button:not(.mprimary):not(.mability):not(.cancel):hover { background: rgba(216,180,106,.2); border-color: rgba(216,180,106,.5); }
+
+/* =====================================================================
+   Deck boxes: decklist "ledger", tools, saved decks
+   ===================================================================== */
+.dk-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 2px; }
+.dk-title { font-family: Cinzel, Georgia, serif; font-weight: 700; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: var(--gold); }
+.dk-count { font-size: 12px; color: var(--muted); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dk-tools { display: flex; gap: 6px; flex-wrap: wrap; }
+.dk-n { font-weight: 500; font-size: 11px; color: var(--muted); }
+.dk-clear { border-color: rgba(224,102,79,.6); color: #ffb8a8; }
+.dk-clear:hover { background: rgba(224,102,79,.2); border-color: var(--red); color: #fff; }
+.dk-clear.undo { border-color: rgba(95,179,122,.7); color: #a8e8bb; }
+.dk-clear.undo:hover { background: rgba(95,179,122,.18); border-color: var(--green); }
+
+.dk-sheet { position: relative; border-radius: 12px; padding: 3px;
+  background: linear-gradient(160deg, rgba(240,212,149,.55), rgba(120,90,40,.35) 40%, rgba(240,212,149,.35));
+  box-shadow: 0 6px 18px rgba(0,0,0,.45); }
+.deckbox .dk-sheet textarea {
+  display: block; width: 100%; min-height: 300px; margin: 0; resize: vertical;
+  border: 0; border-radius: 10px; outline: none;
+  padding: 10px 14px 10px 46px;
+  font-family: Lora, 'Iowan Old Style', Georgia, serif; font-size: 16px; line-height: 28px; font-weight: 400;
+  font-variant-numeric: lining-nums tabular-nums; letter-spacing: .01em; color: #f1e8d2; caret-color: var(--gold-2);
+  background-color: #12100c;
+  background-image:
+    linear-gradient(90deg, transparent 33px, rgba(224,102,79,.45) 33px, rgba(224,102,79,.45) 34px, transparent 34px),
+    repeating-linear-gradient(180deg, transparent 0 27px, rgba(216,180,106,.16) 27px 28px),
+    radial-gradient(120% 80% at 0% 0%, rgba(216,180,106,.08), transparent 60%);
+  background-position: 0 0, 0 10px, 0 0;
+  background-size: 100% 100%, 100% 28px, 100% 100%;
+  background-repeat: no-repeat, repeat-y, no-repeat;
+  background-attachment: local, local, scroll;
+  box-shadow: inset 0 2px 10px rgba(0,0,0,.7);
+  scrollbar-width: thin; scrollbar-color: rgba(216,180,106,.4) transparent;
+}
+.deckbox .dk-sheet textarea::placeholder { color: rgba(241,232,210,.32); font-style: italic; }
+.deckbox .dk-sheet textarea::selection { background: rgba(216,180,106,.35); }
+.dk-sheet:focus-within { background: linear-gradient(160deg, #f0d495, #b8913f 45%, #f0d495); box-shadow: 0 0 0 1px rgba(240,212,149,.4), 0 0 22px rgba(216,180,106,.3), 0 6px 18px rgba(0,0,0,.45); }
+
+/* saved-decks dialog */
+.modal.library { width: min(520px, 100%); }
+.lib-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.lib-head h3 { flex: 1; margin: 0; font-size: 16px; }
+.lib-head h3 .muted { font-family: Inter, sans-serif; font-size: 12px; letter-spacing: 0; margin-left: 6px; }
+.liblist { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.liblist li { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; background: rgba(255,255,255,.05); border: 1px solid var(--line); }
+.lib-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.lib-main b { font-family: Lora, Georgia, serif; font-size: 17px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lib-main .muted { font-size: 12px; }
+.lib-btns { display: flex; gap: 6px; flex: none; }
+.lib-del { min-width: 44px; border-color: rgba(224,102,79,.55); }
+.lib-del.armed { background: linear-gradient(180deg, #a5432b, #6b2a1c); border-color: #f08a72; color: #fff; }
+.libempty { padding: 18px 4px; text-align: center; }
+
+@media (max-width: 700px) {
+  .dk-tools { width: 100%; }
+  .dk-tools button { flex: 1; padding-left: 6px; padding-right: 6px; }
+  .deckbox .dk-sheet textarea { min-height: 240px; font-size: 16px; }
+  .liblist li { flex-wrap: wrap; }
+  .lib-btns { width: 100%; }
+  .lib-btns .btn.primary { flex: 1; }
+}
+@media (max-width: 700px) {
+  .dk-tools button { white-space: nowrap; font-size: 14px; }
+  .dk-n { display: none; }
+}

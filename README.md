@@ -108,6 +108,7 @@ node tests/effects.test.mjs
    - Paste a decklist for each player, or click a sample deck.
    - For Commander, put the commander under a `Commander` heading or add `*CMDR*` after its name.
    - Moxfield's plain-text export works as-is: the deck comes first, then the commander on its own after a blank line. The app detects it and says so in the report. In 60-card formats, that last group is read as the sideboard.
+   - Each deck box has **✕ Clear** (empties it in one tap, with **↶ Undo clear** right after), **💾 Save** and **📂 My decks**. You can keep up to 10 saved decks on each device. Load one into any player's box, or delete it with 🗑 (tap twice to confirm). When all 10 slots are used, saving asks which deck to replace.
    - Click **Check decks & start**.
 2. **Mulligan.** Each player chooses Keep or Mulligan. Use the "viewing" selector to switch players.
 3. **Take turns.** The turn tracker in the middle of the table shows whose turn it is, the phase (Beginning, Main 1, Combat, Main 2, End) and the step. Tap a later phase to skip ahead to it.
