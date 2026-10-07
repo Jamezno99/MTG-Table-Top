@@ -8,13 +8,13 @@
 // Cost: $0. PeerJS's free public server only introduces the browsers to each
 // other; the game data then flows directly between players.
 
-import { Game, RuleError } from './game.js?v=20261006-6';
+import { Game, RuleError } from './game.js?v=20261007-2';
 
 const PREFIX = 'mtgtab-';
 
 // Bump this whenever the messages between host and guests change, so an old
 // APK and a newer website (or vice versa) say "please update" instead of breaking.
-export const PROTOCOL = 1;
+export const PROTOCOL = 2;
 const VERSION_MSG = (yours, host) => `Version mismatch: you have version ${yours ?? 'unknown'} and the host has version ${host ?? 'unknown'}. `
   + 'Whoever is behind should update (download the newest APK, or refresh the website), then try again.';
 const PEERJS_URL = 'https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js';
@@ -98,13 +98,13 @@ function redact(game, seat) {
 }
 
 // Actions a guest may only take for their own seat.
-const OWN_SEAT_ONLY = new Set(['mulligan', 'keep', 'bottomFromHand', 'peekTop', 'concede', 'revealHand', 'chat', 'rematch']);
+const OWN_SEAT_ONLY = new Set(['mulligan', 'keep', 'bottomFromHand', 'peekTop', 'concede', 'revealHand', 'chat', 'rematch', 'cleanupDiscard']);
 
 export const ACTIONS = ['draw', 'mill', 'shuffleLibrary', 'move', 'mulligan', 'keep', 'bottomFromHand', 'nextStep', 'endTurn',
   'skipCombat', 'playLand', 'cast', 'activate', 'resolveTop', 'counterSpell', 'tapForMana', 'addMana', 'clearPool', 'toggleTap', 'untapAll',
   'addCounter', 'setDamage', 'modifyPT', 'grantKeyword', 'transform', 'setNote', 'changeControl', 'createToken', 'copyAsToken',
   'addCardToZone', 'life', 'setLife', 'poison', 'commanderDamage', 'concede', 'setSetting', 'declareAttack', 'declareBlock',
-  'undo', 'peekTop', 'revealHand', 'chat', 'rematch'];
+  'undo', 'peekTop', 'revealHand', 'chat', 'rematch', 'cleanupDiscard', 'attach', 'unattach'];
 
 // ------------------------------------------------------------------ host
 

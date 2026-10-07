@@ -31,13 +31,43 @@ A browser-based Magic: The Gathering simulator with live card data, deck legalit
 - **Animated.** A boot screen when the app opens, plus animation for cards drawn, played and tapped, life changes, mana, phase changes and each new turn. It all switches off when the device is set to reduce motion.
 - **Quality of life.** Undo (Ctrl+Z), and automatic saving in your browser.
 
-### What is automatic vs. manual
+### Card text: what the app understands
 
-The engine enforces the rules of the game: turns, timing, costs, combat and state-based actions. It does **not** automatically execute each card's unique effect text. No simulator does that perfectly for all 27,000+ cards.
+The app reads each card's Oracle text and carries out the common patterns itself. Tap a card and choose **Read card** (or hover on desktop) to see **"What the app does with this card"**: each ability is listed as automatic or by hand.
 
-When a spell resolves, you carry out its text using the card menus. These cover draw, destroy, exile, tokens, counters, P/T changes, keywords, control changes and library searches.
+- **Spells.** Targets are chosen when you cast, and the effect happens when the spell resolves. A spell with no legal targets left fizzles, and hexproof and shroud are respected. Supported effects include:
+  - damage, drawing, life gain and loss, destroy, exile, bounce, tap/untap, counters, pump, fight
+  - tokens, including Treasure, Food, Clue and the other named tokens
+  - countering spells, searching your library, mill, discard, scry, looking at the top cards
+  - modal "Choose one" spells
+- **Triggered abilities.** Enters, dies, attacks, cast, upkeep/end step and damage-to-player triggers go on the stack automatically, in the correct order. "You may" asks you, and "Whenever … for the first time" / "if …" conditions are checked.
+- **Static abilities.** These are applied automatically:
+  - lords ("Other Goblins get +1/+1")
+  - granted keywords
+  - Equipment and Aura bonuses
+  - cost reducers
+  - devotion gods
+  - Coat of Arms-style effects
+- **Activated abilities.** Every ability shows in the card's menu with its full cost: mana, {T}, sacrifice, discard, life or loyalty. Equip, cycling, ninjutsu and channel are included.
+- **Alternative and extra costs.** These are supported:
+  - "Pay N life" instead of mana (Snuff Out style)
+  - additional costs (sacrifice, discard, pay life)
+  - kicker, flashback, and "costs {N} less"
+- **Mana sources.** Pain lands deal their damage, and shock lands ask whether to pay 2 life. Fast lands, check lands and tapped lands enter correctly. Treasure sacrifices itself, and Signets take their {1}. "Any color in your commander's identity" and "for each Elf" mana are also handled. Auto-pay uses free sources before painful ones.
+- **Anything else** (rare or complex wording) is flagged "by hand". Resolve it with **By hand** on the stack and use the card menus. Any rules check can be overridden with **"Do it anyway"**.
 
-Any rules check can be overridden with **"Do it anyway"** for cards that change the rules.
+### Turn automation
+
+These can be switched off in **☰ → Settings → Automation**:
+
+- **Auto upkeep.** Untap and upkeep pass automatically unless something triggers.
+- **Auto draw.** You draw for the turn and go straight to Main 1.
+- **Force cleanup.** At end of turn you must discard down to 7 before the turn passes.
+- **Auto triggers.** Triggered abilities are put on the stack for you.
+
+### Your hand on a phone
+
+Tap **⤢ View hand** (or swipe up on your hand) for a full-screen view. It shows large cards, can sort by order drawn, mana value or type, and has a Play/Cast button under each card.
 
 ## Put it on GitHub Pages
 
@@ -68,6 +98,7 @@ npx serve .
 
 ```bash
 node tests/engine.test.mjs
+node tests/effects.test.mjs
 ```
 
 ## How to play
@@ -85,7 +116,7 @@ node tests/engine.test.mjs
    - Press **Next step** (or Space) to advance.
    - **Click** a card for its actions.
    - **Double-click** to cast/play a card from hand, or to tap a permanent for mana.
-4. **Resolve spells.** Cast spells wait on the stack until you press **Resolve**. Then carry out the card's effect.
+4. **Resolve spells.** Cast spells and triggers wait on the stack until you press **Resolve**. The app then carries out the card's effect, asking you for any choices. **By hand** resolves it without automation.
 5. **Combat.**
    - In Declare Attackers, click a creature and choose **Attack**.
    - Press Next step.
@@ -156,6 +187,7 @@ css/style.css       styling (backdrop: assets/backdrop.jpg)
 js/rules.js         deck parsing & validation, formats, mana costs
 js/scryfall.js      Scryfall API client with caching & rate limiting
 js/game.js          game engine (zones, turns, stack, combat, SBAs, Commander)
+js/effects.js       card-text reader: abilities, costs, triggers, statics, effects
 js/net.js           online play: PeerJS host/guest, hidden-information filtering
 js/main.js          user interface (setup, lobby, board, phone layout)
 js/config.js        deployment settings (the Android build fills in the website address)
@@ -168,7 +200,6 @@ tests/              engine tests (Node)
 
 - A dedicated game server (about $5–10/month) for public matchmaking and hands that are hidden even from the host.
 - Drag-and-drop cards between zones.
-- Attaching Auras and Equipment to permanents.
 
 ## Legal
 

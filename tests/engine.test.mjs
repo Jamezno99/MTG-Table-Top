@@ -219,7 +219,7 @@ test('mana tracker: available mana from untapped sources, clear pool', () => {
   assert.equal(av.per.C, 2);
   elf.sick = false;
   assert.equal(g.availableMana(pid).total, 5);
-  g.tapForMana(g.players[pid].zones.battlefield[0].iid, { G: 1 });
+  g.tapForMana(g.players[pid].zones.battlefield[0].iid, 0);
   assert.equal(g.players[pid].pool.G, 1);
   assert.equal(g.availableMana(pid).total, 4);
   g.addMana(pid, 'R', 2);

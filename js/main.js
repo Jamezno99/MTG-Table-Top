@@ -1,8 +1,8 @@
 // main.js — UI: setup & online lobby, board rendering, menus and dialogs.
-import { fetchCards, searchCards } from './scryfall.js?v=20261006-6';
-import { parseDecklist, validateDeck, resolveTrailing, FORMATS, manaOptions, SAMPLE_DECKS, COLORS } from './rules.js?v=20261006-6';
-import { Game, PHASES, RuleError } from './game.js?v=20261006-6';
-import { Host, Guest, makeCode, inviteLink } from './net.js?v=20261006-6';
+import { fetchCards, searchCards } from './scryfall.js?v=20261007-2';
+import { parseDecklist, validateDeck, resolveTrailing, FORMATS, SAMPLE_DECKS, COLORS } from './rules.js?v=20261007-2';
+import { Game, PHASES, RuleError } from './game.js?v=20261007-2';
+import { Host, Guest, makeCode, inviteLink } from './net.js?v=20261007-2';
 
 const $ = (s, r = document) => r.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -110,11 +110,17 @@ function advance(kind) {
 
 // ================================================================ menu (popover on desktop, bottom sheet on phones)
 
+function abLabel(inst, ab, max) {
+  const short = game.face(inst).name.split(',')[0];
+  const t = `⚡ ${ab.equip ? ab.label : `${ab.label}: ${ab.text}`}`.replace(/~/g, short);
+  return t.length > max ? t.slice(0, max - 1) + '…' : t;
+}
 function openMenu(items, x, y, cardInst = null) {
   const m = $('#menu');
   const head = cardInst && (isTouch() || isPhone()) ? cardThumb(cardInst) : '';
+  const firstPlay = items.findIndex(it => it && it.label && /^▶/.test(it.label) && !it.disabled);
   m.innerHTML = head + items.map((it, i) => it === '-' ? '<hr>' : it.header ? (head && i === 0 ? '' : `<div class="mh">${esc(it.header)}</div>`)
-    : `<button data-i="${i}" ${it.disabled ? 'disabled' : ''}>${esc(it.label)}</button>`).join('')
+    : `<button data-i="${i}" class="${i === firstPlay ? 'mprimary' : /^[▶⚡]/.test(it.label) ? 'mability' : ''}" ${it.disabled ? 'disabled' : ''}>${esc(it.label)}</button>`).join('')
     + (isPhone() ? '<button class="cancel" data-cancel>Cancel</button>' : '');
   m.hidden = false;
   m.classList.toggle('sheet', isPhone());
@@ -141,6 +147,18 @@ function cardThumb(inst) {
     <div class="muted">${esc(f.type_line || '')}</div><button class="small" data-view>🔍 Read card</button></div></div>`;
 }
 
+const UND_ICON = { auto: '✓', partial: '◐', manual: '✋' };
+const UND_WORD = { auto: 'automatic', partial: 'partly automatic', manual: 'do it by hand' };
+function understandHTML(inst) {
+  if (!game || inst.ability || inst.hidden) return '';
+  let u;
+  try { u = game.understand(inst); } catch { return ''; }
+  if (!u.length) return '';
+  return `<div class="und"><div class="und-h">What the app does with this card</div>${u.map(x => `<div class="und-row ${x.status}">
+    <span class="ui" title="${UND_WORD[x.status]}">${UND_ICON[x.status]}</span>
+    <span><b>${esc(x.what)}</b> · ${UND_WORD[x.status]}${x.detail && x.detail.length ? `<br><span class="muted">${esc(x.detail.join(' · '))}</span>` : ''}</span></div>`).join('')}</div>`;
+}
+
 function viewCard(inst) {
   const f = game.face(inst);
   const d = game.db[inst.key] || {};
@@ -149,6 +167,7 @@ function viewCard(inst) {
     <div><h3>${esc(f.name)} ${symbols(f.mana_cost || '')}</h3><div class="ptype">${esc(f.type_line || '')}</div>
     <p>${inst.ability ? esc(inst.text) : symbols(f.oracle_text || '')}</p>
     ${f.power != null ? `<p><b>${esc(f.power)}/${esc(f.toughness)}</b></p>` : f.loyalty ? `<p>Loyalty ${esc(f.loyalty)}</p>` : ''}
+    ${understandHTML(inst)}
     ${d.scryfall_uri ? `<a href="${d.scryfall_uri}" target="_blank" rel="noopener">Rulings on Scryfall ↗</a>` : ''}</div></div>
     <div class="right"><button class="btn primary" data-close>Close</button></div>`, { wide: true });
 }
@@ -511,6 +530,11 @@ function cardHTML(inst, { size = '', bf = false, hidden = false } = {}) {
     else if (inst.counters && inst.counters.defense !== undefined) badges += `<span class="badge loy">⛨ ${inst.counters.defense}</span>`;
     else if (inst.token) badges += `<span class="badge tok">TOKEN</span>`;
     if (inst.note) badges += `<span class="badge note">${esc(inst.note)}</span>`;
+    if (bf && game.s) {
+      const att = game.attachmentsOf(inst.iid);
+      if (att.length) badges += `<span class="badge att" title="${esc(att.map(a => game.face(a).name).join(', '))}">⛓ ${att.length > 1 ? att.length : esc(game.face(att[0]).name)}</span>`;
+      if (inst.attachedTo != null) { const H = game.locate(inst.attachedTo); if (H) badges += `<span class="badge att on">→ ${esc(game.face(H.inst).name)}</span>`; }
+    }
     if (inst.eot && inst.eot.kw.length) badges += `<span class="badge note">${esc(inst.eot.kw.join(', '))}</span>`;
   }
   return `<div class="${cls.join(' ')}" data-iid="${inst.iid}">${body}${badges}</div>`;
@@ -796,6 +820,10 @@ function renderHand() {
       const waiting = game.players.filter(p => !p.kept || p.toBottom).map(p => p.name);
       notice = `<span class="notice">Waiting for ${esc(waiting.join(', '))}${online ? '' : ' — switch “viewing” to them'}.</span>`;
     }
+  } else if (s.pending && s.pending.type === 'discard') {
+    notice = s.pending.pid === pl.id
+      ? `<span class="notice">Discard ${s.pending.n} to end your turn (hand size 7).</span> <button class="btn small primary" data-hand="discard">Choose cards</button>`
+      : `<span class="notice">Waiting for ${esc(game.players[s.pending.pid].name)} to discard down to 7…</span>`;
   } else if (PHASES[s.phase] === 'Cleanup' && s.active === pl.id && pl.zones.hand.length > 7) {
     notice = `<span class="notice">Discard ${pl.zones.hand.length - 7}: tap a card → To graveyard.</span>`;
   } else if (PHASES[s.phase] === 'Declare Blockers' && s.active !== viewer && game.players.flatMap(p => p.zones.battlefield).some(c => c.attacking === viewer)) {
@@ -815,8 +843,9 @@ function renderHand() {
     </div>` : '';
   $('#handbar').innerHTML = `<div class="panel">
     ${bar}
-    <div class="handhead"><h3 style="margin:0">${online ? 'Your hand' : esc(pl.name) + "'s hand"} (${pl.zones.hand.length})</h3>
+    <div class="handhead"><h3 style="margin:0" data-hand="view" title="Open your hand full-screen">${online ? 'Your hand' : esc(pl.name) + "'s hand"} (${pl.zones.hand.length})</h3>
       ${controls}${notice}<span class="spacer"></span>
+      ${pl.zones.hand.length && !hidden ? '<button class="small handviewbtn" data-hand="view">⤢ View hand</button>' : ''}
       ${online ? '' : `<button class="small" data-hand="hide">${hidden ? 'Show hand' : 'Hide hand'}</button>`}</div>
     <div class="hand">${pl.zones.hand.map(c => cardHTML(c, { size: 'hand ' + (s.stage === 'mulligan' && pl.toBottom ? 'selectable' : ''), hidden })).join('') || '<span class="empty">Empty hand</span>'}</div>
   </div>`;
@@ -830,7 +859,7 @@ function renderSide() {
     const label = it.ability ? it.label : f.name;
     return `<div class="stackitem">${cardHTML(it)}<div class="stxt"><b>${esc(label)}</b>${it.x ? ` (X=${it.x})` : ''}<br>
       <span class="muted">${esc(game.players[it.controller].name)}${it.ability ? ' · ' + esc(it.text) : ''}</span>
-      <div class="sbtns">${i === 0 ? `<button class="small" data-stack="resolve">Resolve</button>` : ''}<button class="small" data-stack="counter" data-iid2="${it.iid}">Counter</button></div></div></div>`;
+      <div class="sbtns">${i === 0 ? `<button class="small primary-sm" data-stack="resolve">Resolve</button><button class="small" data-stack="manual" title="Resolve it and carry out the effect yourself">By hand</button>` : ''}<button class="small" data-stack="counter" data-iid2="${it.iid}">Counter</button></div></div></div>`;
   }).join('') : '<p class="muted" style="margin:0">Empty. Spells you cast wait here so others can respond.</p>');
   const log = $('#log');
   const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
@@ -857,6 +886,87 @@ function renderNow() {
   lastActive = game.s.active;
   renderTop(); renderBoard(); renderHand(); renderSide();
   animateChanges();
+  checkPending();
+}
+
+// ---------------- forced cleanup: the discarding player gets a dialog they can't skip
+
+let discardOpen = false;
+function checkPending() {
+  const p = game && game.s && game.s.pending;
+  if (!p || p.type !== 'discard' || discardOpen) return;
+  const me = online ? mySeat() : viewer;
+  if (p.pid !== me || (!online && handHidden)) return;
+  discardOpen = true;
+  setTimeout(async () => {
+    let ids = null;
+    while (!ids) {
+      const now = game.s.pending;
+      if (!now || now.type !== 'discard' || now.pid !== p.pid) break;
+      const cands = game.players[p.pid].zones.hand.map(c => ({ id: c.iid, iid: c.iid, label: game.face(c).name }));
+      ids = await pickDialog(`Discard ${now.n} card${now.n === 1 ? '' : 's'} to end your turn`, cands,
+        { min: now.n, max: now.n, cancel: false, confirm: 'Discard', hint: 'Your hand is over the maximum hand size of 7. Choose what to discard.' });
+      if (!ids) break; // closed: the button in the hand tray re-opens it
+    }
+    discardOpen = false;
+    if (ids) run(() => game.cleanupDiscard(p.pid, ids));
+  }, 250);
+}
+
+// ---------------- full-screen hand (easier on phones)
+
+function handSort(cards, mode) {
+  const mv = c => { const f = game.face(c); return /\bLand\b/.test(f.type_line) ? -1 : (game.db[c.key] || {}).cmc ?? (f.mana_cost || '').length; };
+  const typeRank = c => { const t = game.face(c).type_line || ''; return /Land/.test(t) ? 0 : /Creature/.test(t) ? 1 : /Instant|Sorcery/.test(t) ? 3 : 2; };
+  if (mode === 'cost') return [...cards].sort((a, b) => mv(a) - mv(b));
+  if (mode === 'type') return [...cards].sort((a, b) => typeRank(a) - typeRank(b) || mv(a) - mv(b));
+  return cards;
+}
+
+function handView() {
+  const pl = game.players[viewer];
+  let mode = store.get('mtgsim-handsort') || 'none';
+  const m = openModal('', { wide: true });
+  m.el.classList.add('handview');
+  const draw = () => {
+    const s = game.s;
+    const cards = handSort(pl.zones.hand, mode);
+    const mull = s.stage === 'mulligan';
+    m.el.innerHTML = `<div class="hv-head"><h3>${online ? 'Your hand' : esc(pl.name) + "'s hand"} · ${cards.length}</h3>
+        <div class="hv-sort" role="group" aria-label="Sort">${[['none', 'As drawn'], ['cost', 'Mana value'], ['type', 'Type']].map(([k, l]) => `<button class="small ${mode === k ? 'on' : ''}" data-sort="${k}">${l}</button>`).join('')}</div>
+        <button class="btn small" data-close aria-label="Close">✕</button></div>
+      <p class="muted hv-tip">Tap a card to read it. ${mull ? '' : 'Use the buttons to play it.'}</p>
+      <div class="hv-grid">${cards.map(c => {
+        const f = game.face(c);
+        const land = /\bLand\b/.test(f.type_line || '');
+        const img = f.image && f.image.normal;
+        const primary = mull ? (pl.kept && pl.toBottom ? `<button class="btn small primary" data-hv="bottom" data-id="${c.iid}">Put on bottom</button>` : '')
+          : `<button class="btn small primary" data-hv="${land ? 'land' : 'cast'}" data-id="${c.iid}">${land ? '▶ Play' : '▶ Cast'}</button>`;
+        return `<div class="hv-card"><button class="hv-img" data-hv="read" data-id="${c.iid}" aria-label="Read ${esc(f.name)}">${img ? `<img src="${img}" alt="${esc(f.name)}" loading="lazy">` : `<span class="textcard"><b>${esc(f.name)}</b><span>${symbols(f.mana_cost || '')}</span><i>${esc(f.type_line || '')}</i><small>${esc(f.oracle_text || '')}</small></span>`}</button>
+          <div class="hv-btns">${primary}${mull ? '' : `<button class="btn small" data-hv="more" data-id="${c.iid}" aria-label="More actions">⋯</button>`}</div></div>`;
+      }).join('') || '<p class="muted">Your hand is empty.</p>'}</div>`;
+  };
+  draw();
+  const prevChange = game.onChange;
+  game.onChange = () => { render(); if (m.el.isConnected) draw(); };
+  const restore = () => { if (game.onChange !== prevChange) game.onChange = prevChange; };
+  m.el.addEventListener('click', e => {
+    const srt = e.target.closest('[data-sort]');
+    if (srt) { mode = srt.dataset.sort; store.set('mtgsim-handsort', mode); draw(); return; }
+    const b = e.target.closest('[data-hv]');
+    if (!b) return;
+    const L = game.locate(+b.dataset.id);
+    if (!L) return;
+    const inst = L.inst;
+    const act = b.dataset.hv;
+    if (act === 'read') return viewCard(inst);
+    restore(); m.close();
+    if (act === 'land') playLandFlow(inst);
+    else if (act === 'cast') castFlow(inst);
+    else if (act === 'bottom') run(() => game.bottomFromHand(pl.id, inst.iid));
+    else if (act === 'more') cardMenu(inst, e);
+  });
+  new MutationObserver((_, obs) => { if (!m.el.isConnected) { restore(); obs.disconnect(); } }).observe(document.getElementById('modal-root'), { childList: true });
 }
 
 // ================================================================ animations
@@ -984,6 +1094,7 @@ function showPreview(inst) {
     <div class="ptype">${esc(f.type_line || '')}</div>
     ${inst.ability ? `<p><i>${esc(inst.text)}</i></p>` : `<p>${symbols(f.oracle_text || '')}</p>`}${pt}
     ${legal && legal !== 'legal' ? `<p style="color:var(--red)">${esc(legal.replace('_', ' '))} in ${esc(fmt.name)}</p>` : ''}
+    ${understandHTML(inst)}
     ${d.scryfall_uri ? `<a href="${d.scryfall_uri}" target="_blank" rel="noopener">Rulings &amp; details on Scryfall ↗</a>` : ''}</div>`;
 }
 
@@ -1003,7 +1114,98 @@ function moveTo(inst, z) {
   run(() => game.move(inst.iid, z));
 }
 
-async function castFlow(inst, { ignoreCost = false } = {}) {
+// ---------------- choosing things (targets, cards, modes, colors)
+
+function imgFor(iid) {
+  if (iid == null) return null;
+  const L = game.locate(iid);
+  if (!L) return null;
+  const f = game.face(L.inst);
+  return f.image ? f.image.small : null;
+}
+
+/** Pick objects: items [{id, label, iid?, pid?}] → Promise of chosen ids (or null if cancelled). */
+function pickDialog(title, items, { min = 1, max = 1, hint = '', cancel = true, confirm = 'Done' } = {}) {
+  return new Promise(res => {
+    const sel = new Set();
+    let done = false;
+    const finish = v => { if (done) return; done = true; res(v); };
+    const m = openModal(`<h3>${esc(title)}</h3>${hint ? `<p class="muted">${esc(hint)}</p>` : ''}
+      <div class="pickgrid">${items.map((it, i) => it.pid != null && it.iid == null
+        ? `<button class="pick player" data-i="${i}"><span class="pi">👤</span><b>${esc(it.label)}</b><span class="muted">${game.players[it.pid].life} life</span></button>`
+        : `<button class="pick" data-i="${i}">${imgFor(it.iid) ? `<img src="${imgFor(it.iid)}" alt="">` : `<span class="ptxt">${esc(it.label)}</span>`}<span class="plabel">${esc(it.label)}${it.pid != null ? ` <span class="muted">· ${esc(game.players[it.pid].name)}</span>` : ''}</span></button>`).join('')
+        || '<p class="muted">Nothing to choose from.</p>'}</div>
+      <div class="right"><span class="muted pickcount"></span>${cancel ? '<button class="btn ghost" data-close>Cancel</button>' : ''}<button class="btn primary" data-ok>${esc(confirm)}</button></div>`,
+      { wide: true, onClose: () => finish(null) });
+    const ok = m.el.querySelector('[data-ok]');
+    const sync = () => {
+      m.el.querySelectorAll('[data-i]').forEach(b => b.classList.toggle('on', sel.has(+b.dataset.i)));
+      ok.disabled = sel.size < Math.min(min, items.length);
+      m.el.querySelector('.pickcount').textContent = max > 1 ? `${sel.size} of ${max === 99 ? 'any number' : max} chosen` : '';
+    };
+    m.el.addEventListener('click', e => {
+      const b = e.target.closest('[data-i]');
+      if (b) {
+        const i = +b.dataset.i;
+        if (max === 1) { sel.clear(); sel.add(i); if (min === 1) { finish([items[i].id]); m.close(); return; } }
+        else if (sel.has(i)) sel.delete(i);
+        else if (sel.size < max) sel.add(i);
+        sync();
+      }
+      if (e.target.closest('[data-ok]')) { finish([...sel].map(i => items[i].id)); m.close(); }
+    });
+    sync();
+  });
+}
+
+async function chooseColor(title, allowed = COLORS) {
+  if (allowed.length === 1) return allowed[0];
+  return choose(title, allowed.map(c => ({ html: `<img class="sym" src="${symUrl(c)}"> ${({ W: 'White', U: 'Blue', B: 'Black', R: 'Red', G: 'Green', C: 'Colorless' })[c]}`, value: c })));
+}
+
+async function chooseModes(modal, name) {
+  if (modal.min === 1 && modal.max === 1) {
+    const i = await choose(`${name}: choose one`, modal.modes.map((t, i) => ({ html: symbols(t), value: String(i) })));
+    return i == null ? null : [+i];
+  }
+  const ids = await pickDialog(`${name}: choose ${modal.min === modal.max ? modal.min : `${modal.min}–${modal.max}`}`, modal.modes.map((t, i) => ({ id: String(i), label: t })), { min: modal.min, max: modal.max });
+  return ids ? ids.map(Number) : null;
+}
+
+/** Ask for every target a plan needs; fills `out`. Returns false if cancelled or impossible. */
+async function chooseTargets(plan, ctrlPid, srcIid, out) {
+  for (const slot of plan.targetSlots) {
+    const cands = game.candidates(slot.spec, ctrlPid, srcIid);
+    if (!cands.length) {
+      if (slot.spec.min === 0 || slot.optional) continue;
+      toast(`No legal target for: ${slot.desc}`);
+      return false;
+    }
+    const ids = await pickDialog(`${plan.name}: choose ${slot.desc}`, cands, { min: slot.spec.min, max: slot.spec.max });
+    if (ids == null) return false;
+    out[slot.key] = ids;
+  }
+  return true;
+}
+
+/** Choose permanents you control (sacrifice / tap costs). */
+async function chooseOwn(title, pid, filter, n, { excludeIid = null, untapped = false } = {}) {
+  const pl = game.players[pid];
+  const cands = pl.zones.battlefield.filter(c => c.iid !== excludeIid && (!untapped || !c.tapped) && game.matches(c, filter, pid, excludeIid))
+    .map(c => ({ id: c.iid, iid: c.iid, label: game.face(c).name }));
+  if (cands.length < n) { toast(`You don't control enough to pay that cost.`); return null; }
+  return pickDialog(title, cands, { min: n, max: n });
+}
+
+async function chooseFromHand(title, pid, n, excludeIid = null) {
+  const cands = game.players[pid].zones.hand.filter(c => c.iid !== excludeIid).map(c => ({ id: c.iid, iid: c.iid, label: game.face(c).name }));
+  if (cands.length < n) { toast('Not enough cards in hand.'); return null; }
+  return pickDialog(title, cands, { min: n, max: n });
+}
+
+// ---------------- casting, mana, abilities, lands
+
+async function castFlow(inst, { ignoreCost = false, alt = null, kicked = false } = {}) {
   const d = game.db[inst.key];
   let half = null;
   if (d.faces && d.faces.length > 1 && !d.faces[0].image && ['split', 'adventure', 'flip', 'omen'].includes(d.layout)) {
@@ -1014,34 +1216,160 @@ async function castFlow(inst, { ignoreCost = false } = {}) {
   }
   const f = half || game.face(inst);
   let x = 0;
-  if (/\{X\}/.test(f.mana_cost || '')) { x = await askNumber('Choose a value for X', 1); if (x == null) return; }
-  run(force => game.cast(inst.iid, { force, x, half, ignoreCost }));
+  if (/\{X\}/.test(f.mana_cost || '') && alt !== 'life') { x = await askNumber('Choose a value for X', 1); if (x == null) return; }
+  const choices = { targets: {} };
+  let plan = game.planOf(inst, { half });
+  if (plan.modal) {
+    const modes = await chooseModes(plan.modal, f.name);
+    if (!modes) return;
+    choices.modes = modes;
+    plan = game.planOf(inst, { half, modes });
+  }
+  if (!await chooseTargets(plan, inst.owner, inst.iid, choices.targets)) return;
+  const co = game.castOptions(inst);
+  if (co.additional && !ignoreCost) {
+    if (co.additional.sac) {
+      const ids = await chooseOwn(`Additional cost: sacrifice ${co.additional.sac.n} ${co.additional.sac.desc}`, inst.owner, co.additional.sac.filter, co.additional.sac.n);
+      if (!ids) return;
+      choices.sac = ids;
+    }
+    if (co.additional.discard) {
+      const ids = await chooseFromHand(`Additional cost: discard ${co.additional.discard}`, inst.owner, co.additional.discard, inst.iid);
+      if (!ids) return;
+      choices.discard = ids;
+    }
+  }
+  run(force => game.cast(inst.iid, { force, x, half, ignoreCost, alt, kicked, choices }));
+}
+
+function manaHtml(o) {
+  return symbols(o.label).replace(/^(.)/, c => c.toUpperCase());
 }
 
 async function tapForMana(inst) {
-  const opts = manaOptions(game.face(inst));
-  if (!opts.length) return toast('No simple mana ability found — add mana from the player ⋯ menu.');
-  let o = opts[0];
-  if (opts.length > 1) {
-    o = await choose('Add which mana?', opts.map(op => ({ html: op.any ? 'One mana of any color' : Object.entries(op).map(([k, v]) => `<img class="sym" src="${symUrl(k)}">`.repeat(v)).join(''), value: op })));
-    if (!o) return;
-  }
-  let color = null;
+  const opts = game.manaChoices(inst);
+  if (!opts.length) return toast('No mana ability found — add mana from the player ⋯ menu.');
+  const o = opts.length === 1 ? opts[0] : await choose('Use which mana ability?', opts.map(op => ({ html: manaHtml(op), value: op })));
+  if (!o) return;
+  const allowed = o.identity ? game.commanderIdentity(inst.controller) : COLORS;
+  let colors = null;
   if (o.any) {
-    color = await choose('Which color?', COLORS.map(c => ({ html: `<img class="sym" src="${symUrl(c)}"> ${c}`, value: c })));
-    if (!color) return;
+    colors = [];
+    const n = o.any * o.n;
+    for (let i = 0; i < n; i++) {
+      const c = await chooseColor(n > 1 ? `Color for mana ${i + 1} of ${n}` : 'Which color?', allowed);
+      if (!c) return;
+      colors.push(c);
+    }
+  } else if (o.anyOne) {
+    const c = await chooseColor('Which color?', allowed);
+    if (!c) return;
+    colors = [c];
   }
-  run(force => game.tapForMana(inst.iid, o, color, { force }));
+  run(force => game.tapForMana(inst.iid, o.idx, colors, { force }));
 }
 
-async function activateFlow(inst) {
+async function activateFlow(inst, chosen = null) {
   const abs = game.abilities(inst);
   if (!abs.length) return toast("No activated abilities found in this card's text.");
-  const ab = abs.length === 1 ? abs[0] : await choose('Activate which ability?', abs.map(a => ({ html: `<b>${symbols(a.cost)}</b>: ${symbols(a.text)}`, value: a })));
+  const ab = chosen || (abs.length === 1 ? abs[0] : await choose('Activate which ability?', abs.map(a => ({ html: `<b>${symbols(a.label || a.cost)}</b>: ${symbols(a.text)}`, value: a }))));
   if (!ab) return;
+  const L = game.locate(inst.iid);
+  const pid = L && L.zone === 'battlefield' ? inst.controller : inst.owner;
   let x = 0;
-  if (/\{X\}|X$/.test(ab.cost)) { x = await askNumber('Choose a value for X', 1); if (x == null) return; }
-  run(force => game.activate(inst.iid, ab.i, { force, x }));
+  const c = ab.costParts || {};
+  if (/\{X\}|X$/.test(ab.cost) || ab.amount === null || c.life === 'X' || /\bX\b/.test(ab.text)) { x = await askNumber('Choose a value for X', 1); if (x == null) return; }
+  const choices = { targets: {} };
+  if (c.sac) { const ids = await chooseOwn(`Cost: sacrifice ${c.sac.n} ${c.sac.desc}`, pid, c.sac.filter, c.sac.n, { excludeIid: c.sac.filter.other ? inst.iid : null }); if (!ids) return; choices.sac = ids; }
+  if (c.discard) { const ids = await chooseFromHand(`Cost: discard ${c.discard}`, pid, c.discard, inst.iid); if (!ids) return; choices.discard = ids; }
+  if (c.tapOther) { const ids = await chooseOwn(`Cost: tap an untapped ${c.tapOther.desc}`, pid, c.tapOther.filter, 1, { untapped: true }); if (!ids) return; choices.tapOther = ids; }
+  const pseudo = { ability: true, text: ab.text, srcName: game.face(inst).name, key: inst.key, face: inst.face, controller: pid, source: inst.iid, choices: {} };
+  let plan = game.planOf(pseudo);
+  if (plan.modal) {
+    const modes = await chooseModes(plan.modal, plan.name);
+    if (!modes) return;
+    choices.modes = modes;
+    plan = game.planOf(pseudo, { modes });
+  }
+  if (!await chooseTargets(plan, pid, inst.iid, choices.targets)) return;
+  run(force => game.activate(inst.iid, ab.i, { force, x, choices }));
+}
+
+async function playLandFlow(inst) {
+  const p = game.landPrompt(inst);
+  const name = game.face(inst).name;
+  let etb = null;
+  if (p && p.shock) {
+    etb = await choose(`${name}: pay ${p.shock} life?`, [
+      { label: `Pay ${p.shock} life — it enters untapped`, value: 'pay' },
+      { label: "Don't pay — it enters tapped", value: 'tapped' }]);
+    if (!etb) return;
+  } else if (p === 'ask') {
+    etb = await choose(`${name} enters tapped unless you do what it says.`, [
+      { label: 'I did it — enters untapped', value: 'untapped' },
+      { label: 'Enters tapped', value: 'tapped' }]);
+    if (!etb) return;
+  }
+  run(force => game.playLand(inst.iid, { force, etb }));
+}
+
+// ---------------- resolving the stack
+
+async function resolveFlow({ manual = false } = {}) {
+  const item = game.s.stack[game.s.stack.length - 1];
+  if (!item) return;
+  if (manual) return run(() => game.resolveTop({ manual: true }));
+  const needs = game.resolutionNeeds(item.iid);
+  if (needs.length && online && item.controller !== mySeat())
+    return toast(`${game.players[item.controller].name} makes the choices for this — ask them to resolve it (or use “By hand”).`);
+  const name = item.ability ? (item.srcName || item.label) : game.face(item).name;
+  const choices = { targets: {}, skip: [], picks: {}, colors: {}, conditions: {} };
+  const stepOf = k => k.slice(0, k.lastIndexOf('.'));
+  // yes/no questions first, so we don't ask for targets of something you won't do
+  for (const n of needs.filter(n => n.kind === 'optional' || n.kind === 'condition')) {
+    const q = n.kind === 'optional' ? `${name}: ${n.desc.replace(/^you may /i, '')}?` : `${name}: ${n.desc}?`;
+    const yes = await choose(q.replace(/\.\?$/, '?'), [{ label: 'Yes', value: 'y' }, { label: 'No', value: 'n' }]);
+    if (yes == null) return;
+    if (n.kind === 'optional' && yes === 'n') choices.skip.push(n.key);
+    if (n.kind === 'condition') choices.conditions[n.key] = yes === 'y';
+  }
+  for (const n of needs) {
+    const step = n.kind === 'target' ? stepOf(n.key) : n.key;
+    if (choices.skip.includes(step) || choices.conditions[step] === false) continue;
+    if (n.kind === 'target') {
+      if (!n.candidates.length) continue;
+      const ids = await pickDialog(`${name}: choose ${n.desc}`, n.candidates, { min: n.spec.min, max: n.spec.max });
+      if (ids == null) return;
+      choices.targets[n.key] = ids;
+    } else if (n.kind === 'search') {
+      const st = n.step;
+      const hint = st.dest === 'split' ? 'The first card you pick goes onto the battlefield tapped; the other goes to your hand.' : `Matching cards in your library (${n.candidates.length}).`;
+      const ids = await pickDialog(`${name}: search for ${st.max > 1 ? `up to ${st.dest === 'split' ? 2 : st.max} ` : 'a '}${st.what}`, n.candidates, { min: 0, max: n.max, hint, confirm: 'Done' });
+      if (ids == null) return;
+      choices.picks[n.key] = ids.map(id => +String(id).slice(1));
+    } else if (n.kind === 'fromHand') {
+      if (!n.candidates.length) continue;
+      const ids = await pickDialog(`${name}: put a card from your hand onto the battlefield`, n.candidates, { min: 0, max: 1, confirm: 'Done' });
+      if (ids == null) return;
+      choices.picks[n.key] = ids.map(id => +String(id).slice(1));
+    } else if (n.kind === 'discard') {
+      const ids = await pickDialog(`${name}: discard ${n.min}`, n.candidates, { min: Math.min(n.min, n.candidates.length), max: n.max });
+      if (ids == null) return;
+      choices.picks[n.key] = ids.map(id => +String(id).slice(1));
+    } else if (n.kind === 'color') {
+      const cols = [];
+      for (let i = 0; i < n.n; i++) { const c = await chooseColor(n.n > 1 ? `Color ${i + 1} of ${n.n}` : 'Which color?'); if (!c) return; cols.push(c); }
+      choices.colors[n.key] = cols;
+    }
+  }
+  const plan = game.planOf(item);
+  const look = plan.steps.find(st => st.k === 'look' && !choices.skip.includes(st.key));
+  const ctrl = item.controller;
+  await run(() => game.resolveTop(choices));
+  if (look && (!online || ctrl === mySeat())) {
+    const n = look.n === 'X' ? (item.x || 1) : look.n;
+    if (n > 0) zoneView(ctrl, 'library', { topN: n, mode: look.mode });
+  }
 }
 
 const ptPrompt = async (title, untilEot, inst) => {
@@ -1062,7 +1390,10 @@ function cardMenu(inst, ev) {
   const open = () => openMenu(items, ev.clientX, ev.clientY, inst);
 
   if (L.zone === 'stack') {
-    if (s.stack[s.stack.length - 1].iid === inst.iid) items.push({ label: '✔ Resolve', fn: () => run(() => game.resolveTop()) });
+    if (s.stack[s.stack.length - 1].iid === inst.iid) {
+      items.push({ label: '✔ Resolve', fn: () => resolveFlow() });
+      items.push({ label: '✋ Resolve by hand (do the effect yourself)', fn: () => resolveFlow({ manual: true }) });
+    }
     items.push({ label: '✖ Counter', fn: () => run(() => game.counterSpell(inst.iid)) });
     return open();
   }
@@ -1074,8 +1405,17 @@ function cardMenu(inst, ev) {
 
   if (L.zone === 'battlefield') {
     items.push({ label: inst.tapped ? 'Untap' : 'Tap', fn: () => run(() => game.toggleTap(inst.iid)) });
-    if (manaOptions(f).length) items.push({ label: '◉ Tap for mana', fn: () => tapForMana(inst) });
-    if (game.abilities(inst).length) items.push({ label: '⚡ Activate ability…', fn: () => activateFlow(inst) });
+    if (game.manaChoices(inst).length) items.push({ label: '◉ Tap for mana', fn: () => tapForMana(inst) });
+    for (const ab of game.abilities(inst).filter(a => !a.fromHand)) items.push({ label: abLabel(inst, ab, 70), fn: () => activateFlow(inst, ab) });
+    if (game.isType(inst, 'Aura') || game.isType(inst, 'Equipment')) {
+      items.push({ label: '⛓ Attach to…', fn: async () => {
+        const cands = game.players.flatMap(p => p.zones.battlefield).filter(c => c.iid !== inst.iid && (game.isType(inst, 'Aura') || game.isCreature(c)))
+          .map(c => ({ id: c.iid, iid: c.iid, label: game.face(c).name, pid: c.controller }));
+        const ids = await pickDialog(`Attach ${f.name} to…`, cands);
+        if (ids) run(() => game.attach(inst.iid, ids[0]));
+      } });
+      if (inst.attachedTo != null) items.push({ label: 'Unattach', fn: () => run(() => game.unattach(inst.iid)) });
+    }
     if (game.isCreature(inst)) {
       if (inst.attacking != null) items.push({ label: 'Remove from attack', fn: () => run(force => game.declareAttack(inst.iid, null, { force })) });
       else if (phase === 'Declare Attackers' && inst.controller === s.active) {
@@ -1123,13 +1463,17 @@ function cardMenu(inst, ev) {
   }
 
   // hand / command / graveyard / exile
-  if (isLand) items.push({ label: '▶ Play land', fn: () => run(force => game.playLand(inst.iid, { force })) });
+  if (isLand) items.push({ label: '▶ Play land', fn: () => playLandFlow(inst) });
   if (!isLand || (game.db[inst.key].faces || []).length > 1) {
     const tax = L.zone === 'command' && inst.isCommander ? game.commanderTax(inst) : 0;
-    items.push({ label: `▶ Cast${tax ? ` (+{${tax}} commander tax)` : ''}`, fn: () => castFlow(inst) });
+    const co = game.castOptions(inst);
+    if (L.zone !== 'graveyard' || !co.flashback) items.push({ label: `▶ Cast${tax ? ` (+{${tax}} commander tax)` : ''}${co.reduce ? ` (costs {${co.reduce}} less)` : ''}`, fn: () => castFlow(inst) });
+    if (co.altLife != null) items.push({ label: `▶ Cast by paying ${co.altLife} life instead${co.altLifeCond ? ` (if ${co.altLifeCond})` : ''}`, fn: () => castFlow(inst, { alt: 'life' }) });
+    if (co.kicker) items.push({ label: `▶ Cast with kicker ${co.kicker}`, fn: () => castFlow(inst, { kicked: true }) });
+    if (co.flashback) items.push({ label: `▶ Cast with flashback ${co.flashback}`, fn: () => castFlow(inst, { alt: 'flashback' }) });
     items.push({ label: 'Cast without paying mana cost', fn: () => castFlow(inst, { ignoreCost: true }) });
   }
-  if (game.abilities(inst).some(a => a.kind === 'activated')) items.push({ label: '⚡ Activate ability (cycling, etc.)…', fn: () => activateFlow(inst) });
+  for (const ab of game.abilities(inst).filter(a => a.fromHand && L.zone === 'hand')) items.push({ label: abLabel(inst, ab, 90), fn: () => activateFlow(inst, ab) });
   if (game.hasFaces(inst)) items.push({ label: '⟲ Turn over (other face)', fn: () => run(() => game.transform(inst.iid)) });
   items.push({ label: 'Put onto battlefield tapped', fn: () => run(() => game.move(inst.iid, 'battlefield', { tapped: true, toPlayer: inst.owner })) });
   items.push('-', ...zoneTargets(inst, L.zone));
@@ -1285,8 +1629,15 @@ function settings() {
   const m = openModal(`<h3>Settings</h3>
     <label class="check"><input type="checkbox" class="c1" ${s.cmdrToCommandZone ? 'checked' : ''}> Move commander to the command zone when it would go to graveyard or exile</label>
     ${online ? '' : `<label class="check"><input type="checkbox" class="c2" ${autoViewer ? 'checked' : ''}> Switch to the active player's hand each turn (pass-and-play)</label>`}
+    <h3 style="margin-top:16px">Automation</h3>
+    <label class="check"><input type="checkbox" data-set="autoTriggers" ${s.autoTriggers !== false ? 'checked' : ''}> <span><b>Automatic triggers</b> — “when/whenever/at the beginning of…” abilities go on the stack by themselves</span></label>
+    <label class="check"><input type="checkbox" data-set="autoUpkeep" ${s.autoUpkeep !== false ? 'checked' : ''}> <span><b>Auto upkeep</b> — skip the upkeep step when nothing triggers</span></label>
+    <label class="check"><input type="checkbox" data-set="autoDraw" ${s.autoDraw !== false ? 'checked' : ''}> <span><b>Auto draw</b> — draw for the turn and go straight to your main phase</span></label>
+    <label class="check"><input type="checkbox" data-set="forceCleanup" ${s.forceCleanup !== false ? 'checked' : ''}> <span><b>Force cleanup</b> — at end of turn you must discard down to 7, then the turn passes automatically</span></label>
+    ${online ? '<p class="muted">These settings apply to everyone in this game.</p>' : ''}
     <div class="right"><button class="btn primary" data-close>Done</button></div>`);
   m.el.querySelector('.c1').addEventListener('change', e => run(() => game.setSetting('cmdrToCommandZone', e.target.checked)));
+  m.el.querySelectorAll('[data-set]').forEach(el => el.addEventListener('change', e => run(() => game.setSetting(el.dataset.set, e.target.checked))));
   const c2 = m.el.querySelector('.c2');
   if (c2) c2.addEventListener('change', e => { autoViewer = e.target.checked; });
 }
@@ -1372,13 +1723,16 @@ document.addEventListener('click', e => {
     if (a === 'mull') run(() => game.mulligan(viewer));
     if (a === 'keep') run(() => game.keep(viewer));
     if (a === 'hide') { handHidden = !handHidden; render(); }
+    if (a === 'view') handView();
+    if (a === 'discard') { discardOpen = false; checkPending(); }
     return;
   }
 
   const st = e.target.closest('[data-stack]');
   if (st) {
-    if (st.dataset.stack === 'resolve') run(() => game.resolveTop());
-    else run(() => game.counterSpell(st.dataset.iid2));
+    if (st.dataset.stack === 'resolve') resolveFlow();
+    else if (st.dataset.stack === 'manual') resolveFlow({ manual: true });
+    else if (st.dataset.stack === 'counter') run(() => game.counterSpell(st.dataset.iid2));
     return;
   }
 
@@ -1429,10 +1783,10 @@ document.addEventListener('dblclick', e => {
   const f = game.face(inst);
   if (L.zone === 'hand' || L.zone === 'command') {
     if (game.s.stage !== 'play') return;
-    if (/\bLand\b/.test(f.type_line)) run(force => game.playLand(inst.iid, { force }));
+    if (/\bLand\b/.test(f.type_line)) playLandFlow(inst);
     else castFlow(inst);
   } else if (L.zone === 'battlefield') {
-    if (manaOptions(f).length && !inst.tapped) tapForMana(inst);
+    if (game.manaChoices(inst).length && !inst.tapped) tapForMana(inst);
     else run(() => game.toggleTap(inst.iid));
   }
 });
@@ -1456,6 +1810,22 @@ document.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); run(() => game.undo()); }
   if (e.key === 'Escape') closeMenu();
 });
+
+// Phones: swipe up on the hand tray to open the full-screen hand.
+(() => {
+  let y0 = null, x0 = null;
+  document.addEventListener('touchstart', e => {
+    const t = e.target.closest('#handbar .handhead, #handbar .hand');
+    if (!t || !game) { y0 = null; return; }
+    y0 = e.touches[0].clientY; x0 = e.touches[0].clientX;
+  }, { passive: true });
+  document.addEventListener('touchend', e => {
+    if (y0 == null) return;
+    const dy = e.changedTouches[0].clientY - y0, dx = e.changedTouches[0].clientX - x0;
+    y0 = null;
+    if (dy < -45 && Math.abs(dy) > Math.abs(dx) * 1.5 && !$('#modal-root').children.length) handView();
+  }, { passive: true });
+})();
 
 $('#chatform').addEventListener('submit', e => {
   e.preventDefault();
