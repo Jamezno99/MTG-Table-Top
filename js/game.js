@@ -1,7 +1,7 @@
 // game.js — the game engine: zones, turn structure, stack, mana, combat,
 // state-based actions and Commander rules. No DOM; driven by main.js.
 
-import { parseCost, payCost, colorNeeds, manaOptions, hasKeyword, FORMATS, RuleError } from './rules.js';
+import { parseCost, payCost, colorNeeds, manaOptions, hasKeyword, FORMATS, RuleError } from './rules.js?v=20261006-6';
 export { RuleError };
 
 export const PHASES = ['Untap', 'Upkeep', 'Draw', 'Main 1', 'Beginning of Combat', 'Declare Attackers',

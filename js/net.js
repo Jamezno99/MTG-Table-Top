@@ -8,7 +8,7 @@
 // Cost: $0. PeerJS's free public server only introduces the browsers to each
 // other; the game data then flows directly between players.
 
-import { Game, RuleError } from './game.js';
+import { Game, RuleError } from './game.js?v=20261006-6';
 
 const PREFIX = 'mtgtab-';
 

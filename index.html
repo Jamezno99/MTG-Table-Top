@@ -12,8 +12,8 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Inter:wght@400;500;600&display=swap">
   <link rel="icon" type="image/png" href="assets/favicon.png">
   <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
-  <link rel="stylesheet" href="css/style.css?v=20261006-5">
-  <script src="js/config.js?v=20261006-5"></script>
+  <link rel="stylesheet" href="css/style.css?v=20261006-6">
+  <script src="js/config.js?v=20261006-6"></script>
   <style>
     /* =====================================================================
        Boot screen ("The Draw")
@@ -106,6 +106,38 @@
     // Failsafe: never leave the boot screen up if the app fails to load.
     setTimeout(function () { var b = document.getElementById('boot'); if (b) b.remove(); }, 9000);
   </script>
+  <script>
+    // Start-up check: if the app's code fails to load (missing or mismatched files),
+    // show what went wrong instead of a screen that silently does nothing.
+    (function () {
+      window.__appReady = false;
+      var shown = false;
+      function fail(detail) {
+        if (shown || window.__appReady) return;
+        shown = true;
+        var boot = document.getElementById('boot'); if (boot) boot.remove();
+        var d = document.createElement('div');
+        d.id = 'loadfail';
+        d.setAttribute('role', 'alert');
+        d.style.cssText = 'position:fixed;inset:0;z-index:300;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(5,7,10,.94);color:#e9e4d8;font:15px/1.5 system-ui,sans-serif';
+        d.innerHTML = '<div style="max-width:520px;border:1px solid #d8b46a;border-radius:14px;padding:22px;background:#11151d">'
+          + '<h2 style="margin:0 0 8px;color:#f0d495;font-family:Georgia,serif">The app couldn\'t start</h2>'
+          + '<p style="margin:0 0 10px">Some of the site\'s files are missing or out of date. This usually happens when an update was only partly uploaded, or a file landed in the wrong folder.</p>'
+          + '<ol style="margin:0 0 12px;padding-left:20px"><li>Hard-refresh this page (Ctrl+Shift+R, or Cmd+Shift+R on Mac).</li>'
+          + '<li>If that doesn\'t help, re-upload the whole contents of the <b>mtg-tabletop</b> folder (index.html plus the css, js and assets folders) from the repo\'s main page.</li></ol>'
+          + '<p style="margin:0 0 14px;font-size:12px;color:#9a958a">Technical detail: <code id="loadfail-detail"></code></p>'
+          + '<button onclick="location.reload()" style="font:inherit;padding:8px 16px;border-radius:8px;border:1px solid #e7c983;background:#d8b46a;color:#1a1408;font-weight:600;cursor:pointer">Reload</button></div>';
+        document.body.appendChild(d);
+        document.getElementById('loadfail-detail').textContent = detail;
+      }
+      window.addEventListener('error', function (e) {
+        var t = e.target;
+        if (t && t.tagName === 'SCRIPT') return fail('Could not load ' + (t.src || 'a script') + ' (file missing?)');
+        if (/\/js\//.test(e.filename || '')) fail((e.message || 'Script error') + ' in ' + e.filename.split('/').pop().split('?')[0]);
+      }, true);
+      setTimeout(function () { fail('The app\'s code did not finish loading.'); }, 9500);
+    })();
+  </script>
   <header id="topbar">
     <div class="brand">MTG <span>Tabletop</span></div>
     <div id="turninfo"></div>
@@ -170,6 +202,6 @@
 
   <footer id="legal">Unofficial Fan Content permitted under the Wizards of the Coast Fan Content Policy. Not approved/endorsed by Wizards. Card data &amp; images via <a href="https://scryfall.com" target="_blank" rel="noopener">Scryfall</a>.</footer>
 
-  <script type="module" src="js/main.js?v=20261006-5"></script>
+  <script type="module" src="js/main.js?v=20261006-6"></script>
 </body>
 </html>

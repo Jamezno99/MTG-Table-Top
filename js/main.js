@@ -1,8 +1,8 @@
 // main.js — UI: setup & online lobby, board rendering, menus and dialogs.
-import { fetchCards, searchCards } from './scryfall.js';
-import { parseDecklist, validateDeck, resolveTrailing, FORMATS, manaOptions, SAMPLE_DECKS, COLORS } from './rules.js';
-import { Game, PHASES, RuleError } from './game.js';
-import { Host, Guest, makeCode, inviteLink } from './net.js';
+import { fetchCards, searchCards } from './scryfall.js?v=20261006-6';
+import { parseDecklist, validateDeck, resolveTrailing, FORMATS, manaOptions, SAMPLE_DECKS, COLORS } from './rules.js?v=20261006-6';
+import { Game, PHASES, RuleError } from './game.js?v=20261006-6';
+import { Host, Guest, makeCode, inviteLink } from './net.js?v=20261006-6';
 
 const $ = (s, r = document) => r.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -1476,3 +1476,4 @@ if (new URLSearchParams(location.search).has('debug')) window.__mtg = () => ({ g
 renderSetup();
 bindSetup();
 hideBoot();
+window.__appReady = true;
